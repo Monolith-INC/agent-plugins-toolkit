@@ -1,0 +1,23 @@
+{
+  "name": "agent-plugins-toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference implementation and CLI for the Agent Plugins v1.0.0 portable architecture.",
+  "type": "module",
+  "scripts": {
+    "build": "corepack pnpm -r --filter './packages/*' build",
+    "build:core": "corepack pnpm --filter @agent-plugins/core build",
+    "build:cli": "corepack pnpm --filter @agent-plugins/cli build",
+    "build:testing": "corepack pnpm --filter @agent-plugins/testing build",
+    "typecheck": "corepack pnpm -r --filter './packages/*' typecheck",
+    "test": "corepack pnpm -r --filter './packages/*' test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.14.0"
+}
