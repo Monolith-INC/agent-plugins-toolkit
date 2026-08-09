@@ -334,23 +334,30 @@ test("loadPluginRoot keeps discovered skills when plugin.json is missing", () =>
 });
 
 test("inspectManifest rejects unsupported schema, unknown fields, and invalid names", () => {
-  const inspection = inspectManifest({
-    name: "Bad_Name",
+  const unsupported = inspectManifest({
+    name: "good-name",
     version: "1.0.0",
     schemaVersion: "9.9.9",
-    hooks: true,
-    extensions: { "com.example": { flag: true } },
   });
-
-  assert.equal(inspection.manifest, undefined);
-  assert.deepEqual(
-    inspection.diagnostics.map((diagnostic) => diagnostic.code).sort(),
-    [
-      diagnosticCodes.manifestNameInvalid,
-      diagnosticCodes.manifestSchemaVersionUnsupported,
-      diagnosticCodes.manifestUnknownField,
-    ].sort(),
+  assert.equal(unsupported.manifest, undefined);
+  assert.ok(
+    unsupported.diagnostics.some((diagnostic) => diagnostic.code === diagnosticCodes.manifestSchemaVersionUnsupported),
   );
+
+  const unknown = inspectManifest({
+    name: "good-name",
+    version: "1.0.0",
+    hooks: true,
+  });
+  assert.equal(unknown.manifest, undefined);
+  assert.ok(unknown.diagnostics.some((diagnostic) => diagnostic.code === diagnosticCodes.manifestUnknownField));
+
+  const invalidName = inspectManifest({
+    name: "Bad_Name",
+    version: "1.0.0",
+  });
+  assert.equal(invalidName.manifest, undefined);
+  assert.ok(invalidName.diagnostics.some((diagnostic) => diagnostic.code === diagnosticCodes.manifestNameInvalid));
 
   const preserved = inspectManifest({
     name: "good-name",

@@ -137,7 +137,10 @@ function readManifest(
       createDiagnostic({
         severity: "error",
         code: diagnosticCodes.manifestUnknownField,
-        message: `Unknown portable manifest field "${key}" is not allowed by Agent Plugins v1.0.0.`,
+        message:
+          mode === "portable"
+            ? `Unknown portable manifest field "${key}" is not allowed by Agent Plugins v1.0.0.`
+            : `Unknown declaration field "${key}" is not allowed by Agent Plugins v1.0.0.`,
         path: key,
       }),
     );
@@ -155,8 +158,9 @@ function readManifest(
     ...schemaVersion.diagnostics,
     ...extensions.diagnostics,
   ];
+  const blocked = diagnostics.some((diagnostic) => isManifestRejection(diagnostic.code));
 
-  return name.value === undefined || version.value === undefined
+  return name.value === undefined || version.value === undefined || blocked
     ? { diagnostics }
     : {
         value: {
@@ -168,6 +172,18 @@ function readManifest(
         },
         diagnostics,
       };
+}
+
+function isManifestRejection(code: DiagnosticCode): boolean {
+  switch (code) {
+    case diagnosticCodes.manifestUnknownField:
+    case diagnosticCodes.manifestSchemaVersionUnsupported:
+    case diagnosticCodes.manifestSchemaVersionInvalidType:
+    case diagnosticCodes.manifestNameInvalid:
+      return true;
+    default:
+      return false;
+  }
 }
 
 function readPluginName(value: Record<string, unknown>): ReadResult<string> {
