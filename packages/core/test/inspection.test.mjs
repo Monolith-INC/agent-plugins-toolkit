@@ -193,6 +193,17 @@ test("all stable diagnostic codes are reachable through inspection", () => {
         },
       ],
     }),
+    inspectManifest({
+      name: "Invalid_Name",
+      version: "1.0.0",
+      schemaVersion: "2.0.0",
+      hooks: {},
+    }),
+    inspectManifest({
+      name: "typed-schema",
+      version: "1.0.0",
+      schemaVersion: 1,
+    }),
   ];
 
   const root = mkdtempSync(join(tmpdir(), "agent-plugins-"));
@@ -320,5 +331,46 @@ test("loadPluginRoot keeps discovered skills when plugin.json is missing", () =>
   ]);
   assert.equal(inspection.diagnostics[0]?.code, diagnosticCodes.manifestUnreadable);
   assert.equal(inspection.diagnostics[0]?.message, "Plugin manifest could not be read.");
+});
+
+test("inspectManifest rejects unsupported schema, unknown fields, and invalid names", () => {
+  const unsupported = inspectManifest({
+    name: "good-name",
+    version: "1.0.0",
+    schemaVersion: "9.9.9",
+  });
+  assert.equal(unsupported.manifest, undefined);
+  assert.ok(
+    unsupported.diagnostics.some((diagnostic) => diagnostic.code === diagnosticCodes.manifestSchemaVersionUnsupported),
+  );
+
+  const unknown = inspectManifest({
+    name: "good-name",
+    version: "1.0.0",
+    hooks: true,
+  });
+  assert.equal(unknown.manifest, undefined);
+  assert.ok(unknown.diagnostics.some((diagnostic) => diagnostic.code === diagnosticCodes.manifestUnknownField));
+
+  const invalidName = inspectManifest({
+    name: "Bad_Name",
+    version: "1.0.0",
+  });
+  assert.equal(invalidName.manifest, undefined);
+  assert.ok(invalidName.diagnostics.some((diagnostic) => diagnostic.code === diagnosticCodes.manifestNameInvalid));
+
+  const preserved = inspectManifest({
+    name: "good-name",
+    version: "1.0.0",
+    schemaVersion: "1.0.0",
+    extensions: { "com.example": { flag: true } },
+  });
+  assert.deepEqual(preserved.manifest, {
+    name: "good-name",
+    version: "1.0.0",
+    schemaVersion: "1.0.0",
+    extensions: { "com.example": { flag: true } },
+  });
+  assert.deepEqual(preserved.diagnostics, []);
 });
 

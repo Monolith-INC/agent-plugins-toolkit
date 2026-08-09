@@ -6,9 +6,13 @@ export type DiagnosticSeverity = "error" | "warning" | "info";
 export const diagnosticCodes = {
   manifestInvalidType: "manifest.invalid_type",
   manifestNameRequired: "manifest.name.required",
+  manifestNameInvalid: "manifest.name.invalid",
   manifestVersionRequired: "manifest.version.required",
   manifestDescriptionInvalidType: "manifest.description.invalid_type",
   manifestExtensionsInvalidType: "manifest.extensions.invalid_type",
+  manifestSchemaVersionInvalidType: "manifest.schemaVersion.invalid_type",
+  manifestSchemaVersionUnsupported: "manifest.schemaVersion.unsupported",
+  manifestUnknownField: "manifest.unknown_field",
   skillsInvalidType: "skills.invalid_type",
   skillInvalidType: "skill.invalid_type",
   skillNameRequired: "skill.name.required",
@@ -37,8 +41,23 @@ export interface PluginManifest {
   readonly name: string;
   readonly version: string;
   readonly description?: string;
+  readonly schemaVersion?: string;
   readonly extensions?: Record<string, unknown>;
 }
+
+export const SUPPORTED_SCHEMA_VERSION = "1.0.0";
+
+const PORTABLE_MANIFEST_FIELDS = new Set([
+  "name",
+  "version",
+  "description",
+  "schemaVersion",
+  "extensions",
+]);
+
+const DECLARATION_MANIFEST_FIELDS = new Set([...PORTABLE_MANIFEST_FIELDS, "skills", "mcpServers"]);
+
+const PLUGIN_NAME_PATTERN = /^(?:@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\/)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export interface PluginSkill {
   readonly name?: string;
@@ -82,7 +101,7 @@ export function inspectManifest(value: unknown): PluginInspection {
     };
   }
 
-  const manifest = readManifest(value);
+  const manifest = readManifest(value, "portable");
   return {
     ...(manifest.value === undefined ? {} : { manifest: manifest.value }),
     diagnostics: manifest.diagnostics,
@@ -94,7 +113,7 @@ export function inspectPlugin(value: unknown): PluginInspection {
     return inspectManifest(value);
   }
 
-  const manifest = readManifest(value);
+  const manifest = readManifest(value, "declaration");
   const skills = readSkills(value["skills"]);
   const mcpServers = readMcpServers(value["mcpServers"]);
 
@@ -106,28 +125,113 @@ export function inspectPlugin(value: unknown): PluginInspection {
   };
 }
 
-function readManifest(value: Record<string, unknown>): ReadResult<PluginManifest> {
-  const name = readRequiredString(value, "name", diagnosticCodes.manifestNameRequired);
+function readManifest(
+  value: Record<string, unknown>,
+  mode: "portable" | "declaration",
+): ReadResult<PluginManifest> {
+  const allowed = mode === "portable" ? PORTABLE_MANIFEST_FIELDS : DECLARATION_MANIFEST_FIELDS;
+  const unknownFields = Object.keys(value)
+    .filter((key) => !allowed.has(key))
+    .reduce<readonly string[]>(insertSorted, [])
+    .map((key) =>
+      createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.manifestUnknownField,
+        message:
+          mode === "portable"
+            ? `Unknown portable manifest field "${key}" is not allowed by Agent Plugins v1.0.0.`
+            : `Unknown declaration field "${key}" is not allowed by Agent Plugins v1.0.0.`,
+        path: key,
+      }),
+    );
+
+  const name = readPluginName(value);
   const version = readRequiredString(value, "version", diagnosticCodes.manifestVersionRequired);
   const description = readOptionalString(value, "description", diagnosticCodes.manifestDescriptionInvalidType);
+  const schemaVersion = readSchemaVersion(value);
   const extensions = readOptionalRecord(value, "extensions", diagnosticCodes.manifestExtensionsInvalidType);
   const diagnostics = [
+    ...unknownFields,
     ...name.diagnostics,
     ...version.diagnostics,
     ...description.diagnostics,
+    ...schemaVersion.diagnostics,
     ...extensions.diagnostics,
   ];
+  const blocked = diagnostics.some((diagnostic) => isManifestRejection(diagnostic.code));
 
-  return name.value === undefined || version.value === undefined
+  return name.value === undefined || version.value === undefined || blocked
     ? { diagnostics }
     : {
         value: {
           name: name.value,
           version: version.value,
           ...(description.value === undefined ? {} : { description: description.value }),
+          ...(schemaVersion.value === undefined ? {} : { schemaVersion: schemaVersion.value }),
           ...(extensions.value === undefined ? {} : { extensions: extensions.value }),
         },
         diagnostics,
+      };
+}
+
+function isManifestRejection(code: DiagnosticCode): boolean {
+  switch (code) {
+    case diagnosticCodes.manifestUnknownField:
+    case diagnosticCodes.manifestSchemaVersionUnsupported:
+    case diagnosticCodes.manifestSchemaVersionInvalidType:
+    case diagnosticCodes.manifestNameInvalid:
+      return true;
+    default:
+      return false;
+  }
+}
+
+function readPluginName(value: Record<string, unknown>): ReadResult<string> {
+  const required = readRequiredString(value, "name", diagnosticCodes.manifestNameRequired);
+  if (required.value === undefined) return required;
+  return PLUGIN_NAME_PATTERN.test(required.value)
+    ? required
+    : {
+        diagnostics: [
+          ...required.diagnostics,
+          createDiagnostic({
+            severity: "error",
+            code: diagnosticCodes.manifestNameInvalid,
+            message:
+              'Manifest field "name" must be a lowercase npm-style package name (optional @scope/).',
+            path: "name",
+          }),
+        ],
+      };
+}
+
+function readSchemaVersion(value: Record<string, unknown>): ReadResult<string> {
+  const entry = value["schemaVersion"];
+  if (entry === undefined) return { diagnostics: [] };
+  if (typeof entry !== "string" || entry.length === 0) {
+    return {
+      diagnostics: [
+        createDiagnostic({
+          severity: "error",
+          code: diagnosticCodes.manifestSchemaVersionInvalidType,
+          message: 'Manifest field "schemaVersion" must be a non-empty string when present.',
+          path: "schemaVersion",
+        }),
+      ],
+    };
+  }
+  return entry === SUPPORTED_SCHEMA_VERSION
+    ? { value: entry, diagnostics: [] }
+    : {
+        value: entry,
+        diagnostics: [
+          createDiagnostic({
+            severity: "error",
+            code: diagnosticCodes.manifestSchemaVersionUnsupported,
+            message: `Unsupported schemaVersion "${entry}". Supported: ${SUPPORTED_SCHEMA_VERSION}.`,
+            path: "schemaVersion",
+          }),
+        ],
       };
 }
 
