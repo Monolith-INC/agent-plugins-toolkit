@@ -424,42 +424,83 @@ type JsonRead =
 
 export function loadPluginRoot(root: string): PluginInspection {
   const pluginRoot = resolve(root);
-  return foldManifestRead(readJson(join(pluginRoot, "plugin.json")), pluginRoot);
+  const skillDiscovery = discoverSkills(pluginRoot);
+  const mcpDiscovery = discoverMcpServers(pluginRoot);
+  return foldManifestRead(readJson(join(pluginRoot, "plugin.json")), skillDiscovery, mcpDiscovery);
 }
 
-function foldManifestRead(manifestRead: JsonRead, pluginRoot: string): PluginInspection {
+function foldManifestRead(
+  manifestRead: JsonRead,
+  skillDiscovery: {
+    readonly skills: readonly Record<string, unknown>[];
+    readonly diagnostics: readonly Diagnostic[];
+  },
+  mcpDiscovery: {
+    readonly mcpServers: unknown;
+    readonly diagnostics: readonly Diagnostic[];
+  },
+): PluginInspection {
   switch (manifestRead.kind) {
     case "missing":
-      return {
-        diagnostics: [
-          createDiagnostic({
-            severity: "error",
-            code: diagnosticCodes.manifestUnreadable,
-            message: "Plugin manifest could not be read.",
-            path: "plugin.json",
-          }),
-        ],
-      };
+      return inspectionWithoutReadableManifest(
+        "Plugin manifest could not be read.",
+        skillDiscovery,
+        mcpDiscovery,
+      );
     case "invalid":
-      return {
-        diagnostics: [
-          createDiagnostic({
-            severity: "error",
-            code: diagnosticCodes.manifestUnreadable,
-            message: "Plugin manifest could not be parsed as JSON.",
-            path: "plugin.json",
-          }),
-        ],
-      };
+      return inspectionWithoutReadableManifest(
+        "Plugin manifest could not be parsed as JSON.",
+        skillDiscovery,
+        mcpDiscovery,
+      );
     case "ok":
-      return inspectLoadedPlugin(pluginRoot, manifestRead.value);
+      return inspectLoadedPlugin(manifestRead.value, skillDiscovery, mcpDiscovery);
   }
 }
 
-function inspectLoadedPlugin(pluginRoot: string, manifestValue: unknown): PluginInspection {
-  const skillDiscovery = discoverSkills(pluginRoot);
-  const mcpDiscovery = discoverMcpServers(pluginRoot);
+function inspectionWithoutReadableManifest(
+  message: string,
+  skillDiscovery: {
+    readonly skills: readonly Record<string, unknown>[];
+    readonly diagnostics: readonly Diagnostic[];
+  },
+  mcpDiscovery: {
+    readonly mcpServers: unknown;
+    readonly diagnostics: readonly Diagnostic[];
+  },
+): PluginInspection {
+  const skills = readSkills(skillDiscovery.skills.length === 0 ? undefined : skillDiscovery.skills);
+  const mcpServers = readMcpServers(mcpDiscovery.mcpServers);
 
+  return {
+    ...(skills.value === undefined ? {} : { skills: skills.value }),
+    ...(mcpServers.value === undefined ? {} : { mcpServers: mcpServers.value }),
+    diagnostics: [
+      createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.manifestUnreadable,
+        message,
+        path: "plugin.json",
+      }),
+      ...skillDiscovery.diagnostics,
+      ...mcpDiscovery.diagnostics,
+      ...skills.diagnostics,
+      ...mcpServers.diagnostics,
+    ],
+  };
+}
+
+function inspectLoadedPlugin(
+  manifestValue: unknown,
+  skillDiscovery: {
+    readonly skills: readonly Record<string, unknown>[];
+    readonly diagnostics: readonly Diagnostic[];
+  },
+  mcpDiscovery: {
+    readonly mcpServers: unknown;
+    readonly diagnostics: readonly Diagnostic[];
+  },
+): PluginInspection {
   if (!isRecord(manifestValue)) {
     const manifestInspection = inspectManifest(manifestValue);
     const skills = readSkills(skillDiscovery.skills.length === 0 ? undefined : skillDiscovery.skills);

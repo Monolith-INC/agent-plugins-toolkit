@@ -230,6 +230,17 @@ test("loadPluginRoot discovers skills and mcp.json without execution", () => {
     join(root, "skills", "hello-world", "SKILL.md"),
     "---\nname: hello-world\ndescription: greeting\n---\n\n# Hello\n",
   );
+  writeFileSync(
+    join(root, "mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        docs: {
+          command: "node",
+          args: ["server.js"],
+        },
+      },
+    }),
+  );
 
   const inspection = loadPluginRoot(root);
   assert.deepEqual(inspection.manifest, {
@@ -242,6 +253,13 @@ test("loadPluginRoot discovers skills and mcp.json without execution", () => {
       name: "hello-world",
       path: "skills/hello-world/SKILL.md",
       description: "greeting",
+    },
+  ]);
+  assert.deepEqual(inspection.mcpServers, [
+    {
+      name: "docs",
+      command: "node",
+      args: ["server.js"],
     },
   ]);
   assert.deepEqual(inspection.diagnostics, []);
@@ -274,15 +292,33 @@ test("loadPluginRoot keeps discovered skills when manifest JSON is a non-object"
 test("loadPluginRoot reports unreadable for malformed plugin.json", () => {
   const root = mkdtempSync(join(tmpdir(), "agent-plugins-bad-json-"));
   writeFileSync(join(root, "plugin.json"), "{");
+  mkdirSync(join(root, "skills", "hello"), { recursive: true });
+  writeFileSync(join(root, "skills", "hello", "SKILL.md"), "---\nname: hello\n---\n");
 
   const inspection = loadPluginRoot(root);
-  assert.deepEqual(inspection.diagnostics, [
+  assert.deepEqual(inspection.skills, [
     {
-      severity: "error",
-      code: diagnosticCodes.manifestUnreadable,
-      message: "Plugin manifest could not be parsed as JSON.",
-      path: "plugin.json",
+      name: "hello",
+      path: "skills/hello/SKILL.md",
     },
   ]);
+  assert.equal(inspection.diagnostics[0]?.code, diagnosticCodes.manifestUnreadable);
+  assert.equal(inspection.diagnostics[0]?.message, "Plugin manifest could not be parsed as JSON.");
+});
+
+test("loadPluginRoot keeps discovered skills when plugin.json is missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-missing-manifest-"));
+  mkdirSync(join(root, "skills", "hello"), { recursive: true });
+  writeFileSync(join(root, "skills", "hello", "SKILL.md"), "---\nname: hello\n---\n");
+
+  const inspection = loadPluginRoot(root);
+  assert.deepEqual(inspection.skills, [
+    {
+      name: "hello",
+      path: "skills/hello/SKILL.md",
+    },
+  ]);
+  assert.equal(inspection.diagnostics[0]?.code, diagnosticCodes.manifestUnreadable);
+  assert.equal(inspection.diagnostics[0]?.message, "Plugin manifest could not be read.");
 });
 
