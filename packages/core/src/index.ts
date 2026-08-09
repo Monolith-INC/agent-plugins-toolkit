@@ -1,8 +1,29 @@
 export type DiagnosticSeverity = "error" | "warning" | "info";
 
+export const diagnosticCodes = {
+  manifestInvalidType: "manifest.invalid_type",
+  manifestNameRequired: "manifest.name.required",
+  manifestVersionRequired: "manifest.version.required",
+  manifestDescriptionInvalidType: "manifest.description.invalid_type",
+  manifestExtensionsInvalidType: "manifest.extensions.invalid_type",
+  skillsInvalidType: "skills.invalid_type",
+  skillInvalidType: "skill.invalid_type",
+  skillNameRequired: "skill.name.required",
+  skillPathRequired: "skill.path.required",
+  skillDescriptionInvalidType: "skill.description.invalid_type",
+  mcpServersInvalidType: "mcpServers.invalid_type",
+  mcpServerInvalidType: "mcpServer.invalid_type",
+  mcpServerNameRequired: "mcpServer.name.required",
+  mcpServerCommandRequired: "mcpServer.command.required",
+  mcpServerArgsInvalidType: "mcpServer.args.invalid_type",
+  mcpServerArgInvalidType: "mcpServer.args.item.invalid_type",
+} as const;
+
+export type DiagnosticCode = (typeof diagnosticCodes)[keyof typeof diagnosticCodes] | (string & {});
+
 export interface Diagnostic {
   readonly severity: DiagnosticSeverity;
-  readonly code: string;
+  readonly code: DiagnosticCode;
   readonly message: string;
   readonly path?: string;
 }
@@ -14,8 +35,23 @@ export interface PluginManifest {
   readonly extensions?: Record<string, unknown>;
 }
 
+export interface PluginSkill {
+  readonly name?: string;
+  readonly path: string;
+  readonly description?: string;
+}
+
+export interface PluginMcpServer {
+  readonly name?: string;
+  readonly path?: string;
+  readonly command?: string;
+  readonly args?: readonly string[];
+}
+
 export interface PluginInspection {
   readonly manifest?: PluginManifest;
+  readonly skills?: readonly PluginSkill[];
+  readonly mcpServers?: readonly PluginMcpServer[];
   readonly diagnostics: readonly Diagnostic[];
 }
 
@@ -29,7 +65,7 @@ export function inspectManifest(value: unknown): PluginInspection {
       diagnostics: [
         createDiagnostic({
           severity: "error",
-          code: "manifest.invalid_type",
+          code: diagnosticCodes.manifestInvalidType,
           message: "Plugin manifest must be a JSON object.",
         }),
       ],
@@ -37,47 +73,226 @@ export function inspectManifest(value: unknown): PluginInspection {
   }
 
   const diagnostics: Diagnostic[] = [];
-  const name = readRequiredString(value, "name", diagnostics);
-  const version = readRequiredString(value, "version", diagnostics);
-  const description = readOptionalString(value, "description", diagnostics);
-  const extensions = readOptionalRecord(value, "extensions", diagnostics);
-
-  if (!name || !version) return { diagnostics };
+  const manifest = readManifest(value, diagnostics);
 
   return {
-    manifest: {
-      name,
-      version,
-      ...(description === undefined ? {} : { description }),
-      ...(extensions === undefined ? {} : { extensions }),
-    },
+    ...(manifest === undefined ? {} : { manifest }),
     diagnostics,
   };
 }
 
-function readRequiredString(value: Record<string, unknown>, key: string, diagnostics: Diagnostic[]): string | undefined {
+export function inspectPlugin(value: unknown): PluginInspection {
+  if (!isRecord(value)) {
+    return inspectManifest(value);
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  const manifest = readManifest(value, diagnostics);
+  const skills = readSkills(value["skills"], diagnostics);
+  const mcpServers = readMcpServers(value["mcpServers"], diagnostics);
+
+  return {
+    ...(manifest === undefined ? {} : { manifest }),
+    ...(skills === undefined ? {} : { skills }),
+    ...(mcpServers === undefined ? {} : { mcpServers }),
+    diagnostics,
+  };
+}
+
+function readManifest(value: Record<string, unknown>, diagnostics: Diagnostic[]): PluginManifest | undefined {
+  const name = readRequiredString(value, "name", diagnosticCodes.manifestNameRequired, diagnostics);
+  const version = readRequiredString(value, "version", diagnosticCodes.manifestVersionRequired, diagnostics);
+  const description = readOptionalString(value, "description", diagnosticCodes.manifestDescriptionInvalidType, diagnostics);
+  const extensions = readOptionalRecord(value, "extensions", diagnosticCodes.manifestExtensionsInvalidType, diagnostics);
+
+  if (!name || !version) return undefined;
+
+  return {
+    name,
+    version,
+    ...(description === undefined ? {} : { description }),
+    ...(extensions === undefined ? {} : { extensions }),
+  };
+}
+
+function readSkills(value: unknown, diagnostics: Diagnostic[]): readonly PluginSkill[] | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string" && value.length > 0) {
+    return [
+      {
+        path: value,
+      },
+    ];
+  }
+  if (!Array.isArray(value)) {
+    diagnostics.push({
+      severity: "error",
+      code: diagnosticCodes.skillsInvalidType,
+      message: 'Plugin field "skills" must be a path string or an array when present.',
+      path: "skills",
+    });
+    return undefined;
+  }
+
+  const skills: PluginSkill[] = [];
+  value.forEach((entry, index) => {
+    const path = `skills[${index}]`;
+    if (!isRecord(entry)) {
+      diagnostics.push({
+        severity: "error",
+        code: diagnosticCodes.skillInvalidType,
+        message: "Skill entry must be an object.",
+        path,
+      });
+      return;
+    }
+
+    const name = readRequiredString(entry, "name", diagnosticCodes.skillNameRequired, diagnostics, path);
+    const skillPath = readRequiredString(entry, "path", diagnosticCodes.skillPathRequired, diagnostics, path);
+    const description = readOptionalString(
+      entry,
+      "description",
+      diagnosticCodes.skillDescriptionInvalidType,
+      diagnostics,
+      path,
+    );
+
+    if (!name || !skillPath) return;
+
+    skills.push({
+      name,
+      path: skillPath,
+      ...(description === undefined ? {} : { description }),
+    });
+  });
+
+  return skills;
+}
+
+function readMcpServers(value: unknown, diagnostics: Diagnostic[]): readonly PluginMcpServer[] | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string" && value.length > 0) {
+    return [
+      {
+        path: value,
+      },
+    ];
+  }
+  if (isRecord(value)) {
+    return readMcpServerMap(value, diagnostics);
+  }
+  if (!Array.isArray(value)) {
+    diagnostics.push({
+      severity: "error",
+      code: diagnosticCodes.mcpServersInvalidType,
+      message: 'Plugin field "mcpServers" must be a path string, object map, or array when present.',
+      path: "mcpServers",
+    });
+    return undefined;
+  }
+
+  const mcpServers: PluginMcpServer[] = [];
+  value.forEach((entry, index) => {
+    const path = `mcpServers[${index}]`;
+    if (!isRecord(entry)) {
+      diagnostics.push({
+        severity: "error",
+        code: diagnosticCodes.mcpServerInvalidType,
+        message: "MCP server entry must be an object.",
+        path,
+      });
+      return;
+    }
+
+    const name = readRequiredString(entry, "name", diagnosticCodes.mcpServerNameRequired, diagnostics, path);
+    const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, diagnostics, path);
+    const args = readOptionalStringArray(entry, "args", diagnostics, path);
+
+    if (!name || !command || !args.isValid) return;
+
+    mcpServers.push({
+      name,
+      command,
+      ...(args.value === undefined ? {} : { args: args.value }),
+    });
+  });
+
+  return mcpServers;
+}
+
+function readMcpServerMap(value: Record<string, unknown>, diagnostics: Diagnostic[]): readonly PluginMcpServer[] {
+  const mcpServers: PluginMcpServer[] = [];
+
+  Object.entries(value).forEach(([name, entry]) => {
+    const path = `mcpServers.${name}`;
+    if (typeof entry === "string" && entry.length > 0) {
+      mcpServers.push({
+        name,
+        path: entry,
+      });
+      return;
+    }
+
+    if (!isRecord(entry)) {
+      diagnostics.push({
+        severity: "error",
+        code: diagnosticCodes.mcpServerInvalidType,
+        message: "MCP server entry must be an object or path string.",
+        path,
+      });
+      return;
+    }
+
+    const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, diagnostics, path);
+    const args = readOptionalStringArray(entry, "args", diagnostics, path);
+
+    if (!command || !args.isValid) return;
+
+    mcpServers.push({
+      name,
+      command,
+      ...(args.value === undefined ? {} : { args: args.value }),
+    });
+  });
+
+  return mcpServers;
+}
+
+function readRequiredString(
+  value: Record<string, unknown>,
+  key: string,
+  code: DiagnosticCode,
+  diagnostics: Diagnostic[],
+  parentPath?: string,
+): string | undefined {
   const entry = value[key];
   if (typeof entry === "string" && entry.length > 0) return entry;
 
   diagnostics.push({
     severity: "error",
-    code: `manifest.${key}.required`,
-    message: `Manifest field "${key}" must be a non-empty string.`,
-    path: key,
+    code,
+    message: `Field "${key}" must be a non-empty string.`,
+    path: formatPath(parentPath, key),
   });
   return undefined;
 }
 
-function readOptionalString(value: Record<string, unknown>, key: string, diagnostics: Diagnostic[]): string | undefined {
+function readOptionalString(
+  value: Record<string, unknown>,
+  key: string,
+  code: DiagnosticCode,
+  diagnostics: Diagnostic[],
+  parentPath?: string,
+): string | undefined {
   const entry = value[key];
   if (entry === undefined) return undefined;
   if (typeof entry === "string") return entry;
 
   diagnostics.push({
     severity: "error",
-    code: `manifest.${key}.invalid_type`,
-    message: `Manifest field "${key}" must be a string when present.`,
-    path: key,
+    code,
+    message: `Field "${key}" must be a string when present.`,
+    path: formatPath(parentPath, key),
   });
   return undefined;
 }
@@ -85,7 +300,9 @@ function readOptionalString(value: Record<string, unknown>, key: string, diagnos
 function readOptionalRecord(
   value: Record<string, unknown>,
   key: string,
+  code: DiagnosticCode,
   diagnostics: Diagnostic[],
+  parentPath?: string,
 ): Record<string, unknown> | undefined {
   const entry = value[key];
   if (entry === undefined) return undefined;
@@ -93,11 +310,49 @@ function readOptionalRecord(
 
   diagnostics.push({
     severity: "error",
-    code: `manifest.${key}.invalid_type`,
-    message: `Manifest field "${key}" must be an object when present.`,
-    path: key,
+    code,
+    message: `Field "${key}" must be an object when present.`,
+    path: formatPath(parentPath, key),
   });
   return undefined;
+}
+
+function readOptionalStringArray(
+  value: Record<string, unknown>,
+  key: string,
+  diagnostics: Diagnostic[],
+  parentPath?: string,
+): { readonly isValid: boolean; readonly value?: readonly string[] } {
+  const entry = value[key];
+  if (entry === undefined) return { isValid: true };
+  const path = formatPath(parentPath, key);
+
+  if (!Array.isArray(entry)) {
+    diagnostics.push({
+      severity: "error",
+      code: diagnosticCodes.mcpServerArgsInvalidType,
+      message: `Field "${key}" must be an array of strings when present.`,
+      path,
+    });
+    return { isValid: false };
+  }
+
+  const invalidIndex = entry.findIndex((item) => typeof item !== "string");
+  if (invalidIndex !== -1) {
+    diagnostics.push({
+      severity: "error",
+      code: diagnosticCodes.mcpServerArgInvalidType,
+      message: `Field "${key}" must contain only strings.`,
+      path: `${path}[${invalidIndex}]`,
+    });
+    return { isValid: false };
+  }
+
+  return { isValid: true, value: entry };
+}
+
+function formatPath(parentPath: string | undefined, key: string): string {
+  return parentPath === undefined ? key : `${parentPath}.${key}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
