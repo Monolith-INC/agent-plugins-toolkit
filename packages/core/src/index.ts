@@ -36,14 +36,15 @@ export interface PluginManifest {
 }
 
 export interface PluginSkill {
-  readonly name: string;
+  readonly name?: string;
   readonly path: string;
   readonly description?: string;
 }
 
 export interface PluginMcpServer {
-  readonly name: string;
-  readonly command: string;
+  readonly name?: string;
+  readonly path?: string;
+  readonly command?: string;
   readonly args?: readonly string[];
 }
 
@@ -116,11 +117,18 @@ function readManifest(value: Record<string, unknown>, diagnostics: Diagnostic[])
 
 function readSkills(value: unknown, diagnostics: Diagnostic[]): readonly PluginSkill[] | undefined {
   if (value === undefined) return undefined;
+  if (typeof value === "string" && value.length > 0) {
+    return [
+      {
+        path: value,
+      },
+    ];
+  }
   if (!Array.isArray(value)) {
     diagnostics.push({
       severity: "error",
       code: diagnosticCodes.skillsInvalidType,
-      message: 'Plugin field "skills" must be an array when present.',
+      message: 'Plugin field "skills" must be a path string or an array when present.',
       path: "skills",
     });
     return undefined;
@@ -163,11 +171,21 @@ function readSkills(value: unknown, diagnostics: Diagnostic[]): readonly PluginS
 
 function readMcpServers(value: unknown, diagnostics: Diagnostic[]): readonly PluginMcpServer[] | undefined {
   if (value === undefined) return undefined;
+  if (typeof value === "string" && value.length > 0) {
+    return [
+      {
+        path: value,
+      },
+    ];
+  }
+  if (isRecord(value)) {
+    return readMcpServerMap(value, diagnostics);
+  }
   if (!Array.isArray(value)) {
     diagnostics.push({
       severity: "error",
       code: diagnosticCodes.mcpServersInvalidType,
-      message: 'Plugin field "mcpServers" must be an array when present.',
+      message: 'Plugin field "mcpServers" must be a path string, object map, or array when present.',
       path: "mcpServers",
     });
     return undefined;
@@ -190,12 +208,50 @@ function readMcpServers(value: unknown, diagnostics: Diagnostic[]): readonly Plu
     const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, diagnostics, path);
     const args = readOptionalStringArray(entry, "args", diagnostics, path);
 
-    if (!name || !command) return;
+    if (!name || !command || !args.isValid) return;
 
     mcpServers.push({
       name,
       command,
-      ...(args === undefined ? {} : { args }),
+      ...(args.value === undefined ? {} : { args: args.value }),
+    });
+  });
+
+  return mcpServers;
+}
+
+function readMcpServerMap(value: Record<string, unknown>, diagnostics: Diagnostic[]): readonly PluginMcpServer[] {
+  const mcpServers: PluginMcpServer[] = [];
+
+  Object.entries(value).forEach(([name, entry]) => {
+    const path = `mcpServers.${name}`;
+    if (typeof entry === "string" && entry.length > 0) {
+      mcpServers.push({
+        name,
+        path: entry,
+      });
+      return;
+    }
+
+    if (!isRecord(entry)) {
+      diagnostics.push({
+        severity: "error",
+        code: diagnosticCodes.mcpServerInvalidType,
+        message: "MCP server entry must be an object or path string.",
+        path,
+      });
+      return;
+    }
+
+    const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, diagnostics, path);
+    const args = readOptionalStringArray(entry, "args", diagnostics, path);
+
+    if (!command || !args.isValid) return;
+
+    mcpServers.push({
+      name,
+      command,
+      ...(args.value === undefined ? {} : { args: args.value }),
     });
   });
 
@@ -266,9 +322,9 @@ function readOptionalStringArray(
   key: string,
   diagnostics: Diagnostic[],
   parentPath?: string,
-): readonly string[] | undefined {
+): { readonly isValid: boolean; readonly value?: readonly string[] } {
   const entry = value[key];
-  if (entry === undefined) return undefined;
+  if (entry === undefined) return { isValid: true };
   const path = formatPath(parentPath, key);
 
   if (!Array.isArray(entry)) {
@@ -278,7 +334,7 @@ function readOptionalStringArray(
       message: `Field "${key}" must be an array of strings when present.`,
       path,
     });
-    return undefined;
+    return { isValid: false };
   }
 
   const invalidIndex = entry.findIndex((item) => typeof item !== "string");
@@ -289,10 +345,10 @@ function readOptionalStringArray(
       message: `Field "${key}" must contain only strings.`,
       path: `${path}[${invalidIndex}]`,
     });
-    return undefined;
+    return { isValid: false };
   }
 
-  return entry;
+  return { isValid: true, value: entry };
 }
 
 function formatPath(parentPath: string | undefined, key: string): string {

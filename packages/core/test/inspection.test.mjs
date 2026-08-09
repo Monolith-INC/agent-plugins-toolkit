@@ -64,6 +64,11 @@ test("inspectPlugin returns partial component data alongside diagnostics", () =>
       {
         name: "missing-command",
       },
+      {
+        name: "invalid-args",
+        command: "node",
+        args: ["server.js", 42],
+      },
     ],
   });
 
@@ -90,6 +95,60 @@ test("inspectPlugin returns partial component data alongside diagnostics", () =>
       diagnosticCodes.skillPathRequired,
       diagnosticCodes.skillInvalidType,
       diagnosticCodes.mcpServerCommandRequired,
+      diagnosticCodes.mcpServerArgInvalidType,
+    ],
+  );
+});
+
+test("inspectPlugin accepts path and object map component declarations", () => {
+  assert.deepEqual(
+    inspectPlugin({
+      name: "path-plugin",
+      version: "1.0.0",
+      skills: "skills",
+      mcpServers: "mcp.json",
+    }),
+    {
+      manifest: {
+        name: "path-plugin",
+        version: "1.0.0",
+      },
+      skills: [
+        {
+          path: "skills",
+        },
+      ],
+      mcpServers: [
+        {
+          path: "mcp.json",
+        },
+      ],
+      diagnostics: [],
+    },
+  );
+
+  assert.deepEqual(
+    inspectPlugin({
+      name: "mapped-plugin",
+      version: "1.0.0",
+      mcpServers: {
+        local: {
+          command: "node",
+          args: ["server.js"],
+        },
+        shared: "mcp/shared.json",
+      },
+    }).mcpServers,
+    [
+      {
+        name: "local",
+        command: "node",
+        args: ["server.js"],
+      },
+      {
+        name: "shared",
+        path: "mcp/shared.json",
+      },
     ],
   );
 });
@@ -102,8 +161,8 @@ test("all stable diagnostic codes are reachable through inspection", () => {
       version: "",
       description: 42,
       extensions: [],
-      skills: "invalid-skills",
-      mcpServers: "invalid-mcp-servers",
+      skills: 42,
+      mcpServers: 42,
     }),
     inspectPlugin({
       name: "invalid-components",
