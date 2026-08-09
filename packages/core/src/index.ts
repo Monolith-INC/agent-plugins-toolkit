@@ -100,8 +100,8 @@ export function inspectPlugin(value: unknown): PluginInspection {
 
   return {
     ...(manifest.value === undefined ? {} : { manifest: manifest.value }),
-    ...(skills.value === undefined ? {} : { skills: skills.value }),
-    ...(mcpServers.value === undefined ? {} : { mcpServers: mcpServers.value }),
+    ...optionalSkills(skills.value),
+    ...optionalMcpServers(mcpServers.value),
     diagnostics: [...manifest.diagnostics, ...skills.diagnostics, ...mcpServers.diagnostics],
   };
 }
@@ -413,6 +413,16 @@ function formatPath(parentPath: string | undefined, key: string): string {
   return parentPath === undefined ? key : `${parentPath}.${key}`;
 }
 
+function optionalSkills(value: readonly PluginSkill[] | undefined): { readonly skills?: readonly PluginSkill[] } {
+  return value === undefined || value.length === 0 ? {} : { skills: value };
+}
+
+function optionalMcpServers(
+  value: readonly PluginMcpServer[] | undefined,
+): { readonly mcpServers?: readonly PluginMcpServer[] } {
+  return value === undefined || value.length === 0 ? {} : { mcpServers: value };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -473,8 +483,8 @@ function inspectionWithoutReadableManifest(
   const mcpServers = readMcpServers(mcpDiscovery.mcpServers);
 
   return {
-    ...(skills.value === undefined ? {} : { skills: skills.value }),
-    ...(mcpServers.value === undefined ? {} : { mcpServers: mcpServers.value }),
+    ...optionalSkills(skills.value),
+    ...optionalMcpServers(mcpServers.value),
     diagnostics: [
       createDiagnostic({
         severity: "error",
@@ -508,8 +518,8 @@ function inspectLoadedPlugin(
 
     return {
       ...manifestInspection,
-      ...(skills.value === undefined ? {} : { skills: skills.value }),
-      ...(mcpServers.value === undefined ? {} : { mcpServers: mcpServers.value }),
+      ...optionalSkills(skills.value),
+      ...optionalMcpServers(mcpServers.value),
       diagnostics: [
         ...skillDiscovery.diagnostics,
         ...mcpDiscovery.diagnostics,
@@ -648,7 +658,7 @@ function listDirectories(directory: string): readonly string[] {
 }
 
 function insertSorted(items: readonly string[], item: string): readonly string[] {
-  const index = items.findIndex((existing) => item.localeCompare(existing) < 0);
+  const index = items.findIndex((existing) => item.localeCompare(existing, "en") < 0);
   return index === -1 ? [...items, item] : [...items.slice(0, index), item, ...items.slice(index)];
 }
 

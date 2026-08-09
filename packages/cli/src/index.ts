@@ -29,6 +29,7 @@ function validatePlugin(pluginPath: string): number {
     console.error(JSON.stringify(inspection.diagnostics, null, 2));
     return 1;
   }
+  console.log(JSON.stringify({ ok: true }));
   return 0;
 }
 
