@@ -1,9 +1,22 @@
 # Agent Plugins Toolkit Architecture
 
-The toolkit starts as a pnpm workspace with three package boundaries:
+The toolkit is a pnpm workspace with three package boundaries:
 
-- `packages/core` contains portable data types and inspection primitives.
-- `packages/cli` contains command-line entrypoints and depends on `packages/core`.
-- `packages/testing` contains shared fixtures and test helpers.
+- `packages/core` — portable data types, diagnostics, and inspection primitives (`loadPluginRoot`, `inspectPlugin`, `inspectManifest`)
+- `packages/cli` — command-line entrypoints (`agent-plugin validate|inspect`) that depend on `packages/core`
+- `packages/testing` — shared fixtures helpers for package tests
 
-Client-specific runtime code should stay outside `packages/core`.
+## Portable inspection model
+
+`loadPluginRoot(path)` reads a plugin directory and returns a `PluginInspection`:
+
+- `manifest` — typed portable fields when valid
+- `skills` — discovered immediate Skills (when any)
+- `mcpServers` — discriminated MCP transport entries (when any)
+- `diagnostics` — structured, component-scoped findings
+
+Partial results are preserved when some components fail: diagnostics accumulate while valid siblings remain available.
+
+## Non-goals for core
+
+Client-specific runtime code (hooks execution, MCP process supervision, marketplace packaging) stays outside `packages/core`. The portable core loads and validates; hosts decide how to run.
