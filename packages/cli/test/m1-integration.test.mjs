@@ -71,6 +71,7 @@ test("inspect reports MCP command metadata without spawning a process", () => {
   const inspection = JSON.parse(result.stdout);
   assert.deepEqual(inspection.mcpServers, [
     {
+      transport: "stdio",
       name: "docs",
       command: "node",
       args: ["server.js"],
@@ -130,6 +131,8 @@ test("cli and core loader sources do not execute plugin processes", () => {
   assert.equal(cliSource.includes("child_process"), false);
   assert.equal(coreSource.includes("child_process"), false);
   assert.equal(coreSource.includes("spawn("), false);
+  assert.equal(coreSource.includes("fetch("), false);
+  assert.equal(coreSource.includes("http.request"), false);
 });
 
 function withCapturedIo(action) {
