@@ -1,0 +1,26 @@
+{
+  "name": "@agent-plugins/cli",
+  "version": "0.1.0",
+  "description": "Command-line interface for Agent Plugins Toolkit.",
+  "type": "module",
+  "bin": {
+    "agent-plugin": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@agent-plugins/core": "workspace:*"
+  }
+}

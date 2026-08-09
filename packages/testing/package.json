@@ -1,0 +1,23 @@
+{
+  "name": "@agent-plugins/testing",
+  "version": "0.1.0",
+  "description": "Shared test helpers for Agent Plugins Toolkit.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@agent-plugins/core": "workspace:*"
+  }
+}
