@@ -1,5 +1,10 @@
 {
   "name": "hello-world",
   "version": "1.0.0",
-  "description": "Minimum valid Agent Plugins reference plugin."
+  "description": "Minimum valid Agent Plugins reference plugin.",
+  "extensions": {
+    "com.example.flags": {
+      "demo": true
+    }
+  }
 }
