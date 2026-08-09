@@ -78,6 +78,12 @@ test("unknown commands print usage and exit non-zero", () => {
   assert.match(result.stderr, /Usage: agent-plugin/);
 });
 
+test("validate --help prints usage instead of treating --help as a path", () => {
+  const result = withCapturedIo(() => run(["validate", "--help"]));
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Usage: agent-plugin/);
+});
+
 test("inspect reports MCP command metadata without spawning a process", () => {
   const root = mkdtempSync(join(tmpdir(), "agent-plugins-mcp-inspect-"));
   writeFileSync(

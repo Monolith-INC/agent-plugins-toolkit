@@ -14,23 +14,39 @@ Commands:
 
 export function run(argv: readonly string[]): number {
   const [command, maybePath] = argv;
-  const pluginPath = resolve(maybePath ?? process.cwd());
 
   switch (command) {
     case "validate":
-      return validatePlugin(pluginPath);
+      return isHelpToken(maybePath) ? printUsage(0) : validatePlugin(resolve(maybePath ?? process.cwd()));
     case "inspect":
-      return printInspection(loadPluginRoot(pluginPath));
+      return isHelpToken(maybePath)
+        ? printUsage(0)
+        : printInspection(loadPluginRoot(resolve(maybePath ?? process.cwd())));
     case "help":
     case "--help":
     case "-h":
     case undefined:
-      console.log(USAGE.trimEnd());
-      return 0;
+      return printUsage(0);
     default:
       console.error(`Unknown command: ${command}\n\n${USAGE.trimEnd()}`);
       return 1;
   }
+}
+
+function isHelpToken(token: string | undefined): boolean {
+  switch (token) {
+    case "help":
+    case "--help":
+    case "-h":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function printUsage(exitCode: number): number {
+  console.log(USAGE.trimEnd());
+  return exitCode;
 }
 
 function validatePlugin(pluginPath: string): number {
