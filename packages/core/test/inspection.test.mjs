@@ -517,3 +517,37 @@ test("missing mcp.json remains valid", () => {
   assert.equal(Object.hasOwn(inspection, "mcpServers"), false);
   assert.deepEqual(inspection.diagnostics, []);
 });
+
+test("MCP inference rejects ambiguous command+url and invalid cwd drops the server", () => {
+  const ambiguous = inspectPlugin({
+    name: "ambiguous-mcp",
+    version: "1.0.0",
+    mcpServers: [
+      {
+        name: "both",
+        command: "node",
+        url: "https://example.com",
+      },
+      {
+        name: "conflict",
+        type: "stdio",
+        transport: "sse",
+        command: "node",
+      },
+      {
+        name: "bad-cwd",
+        command: "node",
+        cwd: 42,
+      },
+    ],
+  });
+  assert.equal(Object.hasOwn(ambiguous, "mcpServers"), false);
+  assert.deepEqual(
+    ambiguous.diagnostics.map((diagnostic) => diagnostic.code),
+    [
+      diagnosticCodes.mcpServerTransportRequired,
+      diagnosticCodes.mcpServerTransportUnsupported,
+      diagnosticCodes.mcpServerCwdInvalidType,
+    ],
+  );
+});

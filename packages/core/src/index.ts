@@ -459,6 +459,19 @@ function inferMcpServer(
   const hasCommand = entry["command"] !== undefined;
   const hasUrl = entry["url"] !== undefined;
   switch (true) {
+    case hasCommand && hasUrl:
+      return {
+        diagnostics: [
+          ...prior,
+          createDiagnostic({
+            severity: "error",
+            code: diagnosticCodes.mcpServerTransportRequired,
+            message:
+              'MCP server with both "command" and "url" must declare transport via "type" or "transport".',
+            path: formatPath(path, "transport"),
+          }),
+        ],
+      };
     case hasCommand:
       return readStdioServer(entry, path, name, prior);
     case hasUrl:
@@ -483,7 +496,30 @@ function readDeclaredTransport(
   entry: Record<string, unknown>,
   path: string,
 ): ReadResult<PluginMcpTransport> {
-  const raw = entry["type"] ?? entry["transport"];
+  const typed = entry["type"];
+  const transported = entry["transport"];
+  switch (true) {
+    case typed !== undefined && transported !== undefined && typed !== transported:
+      return {
+        diagnostics: [
+          createDiagnostic({
+            severity: "error",
+            code: diagnosticCodes.mcpServerTransportUnsupported,
+            message: 'MCP server "type" and "transport" must agree when both are present.',
+            path: formatPath(path, "transport"),
+          }),
+        ],
+      };
+    default:
+      return readTransportValue(typed ?? transported, path, typed !== undefined ? "type" : "transport");
+  }
+}
+
+function readTransportValue(
+  raw: unknown,
+  path: string,
+  field: "type" | "transport",
+): ReadResult<PluginMcpTransport> {
   if (raw === undefined) return { diagnostics: [] };
   switch (raw) {
     case "stdio":
@@ -502,7 +538,7 @@ function readDeclaredTransport(
             code: diagnosticCodes.mcpServerTransportUnsupported,
             message:
               'MCP server transport must be one of "stdio", "streamable-http", "sse", or "config-path".',
-            path: formatPath(path, typeof entry["type"] === "undefined" ? "transport" : "type"),
+            path: formatPath(path, field),
           }),
         ],
       };
@@ -519,7 +555,7 @@ function readStdioServer(
   const args = readOptionalStringArray(entry, "args", path);
   const cwd = readOptionalString(entry, "cwd", diagnosticCodes.mcpServerCwdInvalidType, path);
   const diagnostics = [...prior, ...command.diagnostics, ...args.diagnostics, ...cwd.diagnostics];
-  return command.value === undefined || !args.isValid
+  return command.value === undefined || !args.isValid || cwd.diagnostics.length > 0
     ? { diagnostics }
     : {
         value: withPlaceholders({
