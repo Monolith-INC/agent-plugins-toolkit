@@ -21,6 +21,23 @@ test("validate succeeds for fixtures/valid/hello-world", () => {
   assert.deepEqual(JSON.parse(code.stdout), { ok: true });
 });
 
+test("inspect discovers only immediate skills from skill-discovery fixture", () => {
+  const code = withCapturedIo(() =>
+    run(["inspect", join(repoRoot, "fixtures/valid/skill-discovery")]),
+  );
+  assert.equal(code.exitCode, 0);
+  const inspection = JSON.parse(code.stdout);
+  assert.deepEqual(
+    inspection.skills.map((skill) => skill.path),
+    ["skills/alpha/SKILL.md", "skills/beta/SKILL.md", "skills/zeta/SKILL.md"],
+  );
+  assert.equal(
+    inspection.skills.some((skill) => skill.path.includes("nested-ignored")),
+    false,
+  );
+  assert.equal(inspection.diagnostics.length, 0);
+});
+
 test("inspect reports hello-world portable components", () => {
   const code = withCapturedIo(() => run(["inspect", join(repoRoot, "plugins/hello-world")]));
   assert.equal(code.exitCode, 0);

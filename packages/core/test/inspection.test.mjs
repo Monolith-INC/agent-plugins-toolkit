@@ -333,6 +333,64 @@ test("loadPluginRoot keeps discovered skills when plugin.json is missing", () =>
   assert.equal(inspection.diagnostics[0]?.message, "Plugin manifest could not be read.");
 });
 
+test("loadPluginRoot discovers only immediate skills deterministically and ignores nested skills", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-skill-discovery-"));
+  writeFileSync(
+    join(root, "plugin.json"),
+    JSON.stringify({ name: "skill-discovery", version: "1.0.0" }),
+  );
+  mkdirSync(join(root, "skills"), { recursive: true });
+  writeFileSync(join(root, "skills", "README.md"), "ignored file\n");
+  for (const [name, description] of [
+    ["zeta", "third"],
+    ["alpha", "first"],
+    ["beta", "second"],
+  ]) {
+    mkdirSync(join(root, "skills", name), { recursive: true });
+    writeFileSync(
+      join(root, "skills", name, "SKILL.md"),
+      `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`,
+    );
+  }
+  mkdirSync(join(root, "skills", "alpha", "nested-ignored"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "alpha", "nested-ignored", "SKILL.md"),
+    "---\nname: nested-ignored\ndescription: must not be discovered\n---\n\n# Nested\n",
+  );
+
+  const inspection = loadPluginRoot(root);
+  assert.deepEqual(
+    inspection.skills.map((skill) => skill.path),
+    ["skills/alpha/SKILL.md", "skills/beta/SKILL.md", "skills/zeta/SKILL.md"],
+  );
+  assert.equal(
+    inspection.skills.some((skill) => skill.name === "nested-ignored"),
+    false,
+  );
+  assert.deepEqual(inspection.diagnostics, []);
+});
+
+test("loadPluginRoot reports missing SKILL.md without executing skill content", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-missing-skill-md-"));
+  writeFileSync(
+    join(root, "plugin.json"),
+    JSON.stringify({ name: "missing-skill-md", version: "1.0.0" }),
+  );
+  mkdirSync(join(root, "skills", "broken"), { recursive: true });
+  writeFileSync(join(root, "skills", "broken", "run.sh"), "#!/bin/sh\necho should-not-run\n");
+
+  const inspection = loadPluginRoot(root);
+  assert.equal(Object.hasOwn(inspection, "skills"), false);
+  assert.deepEqual(inspection.diagnostics, [
+    {
+      severity: "error",
+      code: diagnosticCodes.skillMissingSkillMd,
+      message: "Skill directory must contain SKILL.md.",
+      path: "skills/broken/SKILL.md",
+    },
+  ]);
+});
+
 test("inspectManifest rejects unsupported schema, unknown fields, and invalid names", () => {
   const unsupported = inspectManifest({
     name: "good-name",
