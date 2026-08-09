@@ -1,0 +1,5 @@
+{
+  "name": "invalid-mcp-server",
+  "version": "1.0.0",
+  "description": "Invalid fixture with an MCP server missing command."
+}

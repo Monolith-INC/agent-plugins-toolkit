@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { diagnosticCodes, inspectManifest, inspectPlugin } from "../dist/index.js";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { diagnosticCodes, inspectManifest, inspectPlugin, loadPluginRoot } from "../dist/index.js";
 
 test("inspectManifest reports structured manifest diagnostics", () => {
   const inspection = inspectManifest({
@@ -191,7 +195,94 @@ test("all stable diagnostic codes are reachable through inspection", () => {
     }),
   ];
 
-  const emittedCodes = new Set(inspections.flatMap((inspection) => inspection.diagnostics.map((diagnostic) => diagnostic.code)));
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-"));
+  writeFileSync(
+    join(root, "plugin.json"),
+    JSON.stringify({ name: "filesystem-codes", version: "1.0.0" }),
+  );
+  mkdirSync(join(root, "skills", "broken"), { recursive: true });
+  const filesystemInspections = [
+    loadPluginRoot(join(root, "missing-root")),
+    loadPluginRoot(root),
+  ];
+
+  const emittedCodes = new Set(
+    [...inspections, ...filesystemInspections].flatMap((inspection) =>
+      inspection.diagnostics.map((diagnostic) => diagnostic.code),
+    ),
+  );
 
   assert.deepEqual(emittedCodes, new Set(Object.values(diagnosticCodes)));
 });
+
+test("loadPluginRoot discovers skills and mcp.json without execution", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-hello-"));
+  writeFileSync(
+    join(root, "plugin.json"),
+    JSON.stringify({
+      name: "hello-world",
+      version: "1.0.0",
+      description: "temp",
+    }),
+  );
+  mkdirSync(join(root, "skills", "hello-world"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "hello-world", "SKILL.md"),
+    "---\nname: hello-world\ndescription: greeting\n---\n\n# Hello\n",
+  );
+
+  const inspection = loadPluginRoot(root);
+  assert.deepEqual(inspection.manifest, {
+    name: "hello-world",
+    version: "1.0.0",
+    description: "temp",
+  });
+  assert.deepEqual(inspection.skills, [
+    {
+      name: "hello-world",
+      path: "skills/hello-world/SKILL.md",
+      description: "greeting",
+    },
+  ]);
+  assert.deepEqual(inspection.diagnostics, []);
+});
+
+test("loadPluginRoot keeps discovered skills when manifest JSON is a non-object", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-null-manifest-"));
+  writeFileSync(join(root, "plugin.json"), "null");
+  mkdirSync(join(root, "skills", "hello"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "hello", "SKILL.md"),
+    "---\nname: hello\ndescription: kept\n---\n\n# Hello\n",
+  );
+
+  const inspection = loadPluginRoot(root);
+  assert.equal(inspection.manifest, undefined);
+  assert.deepEqual(inspection.skills, [
+    {
+      name: "hello",
+      path: "skills/hello/SKILL.md",
+      description: "kept",
+    },
+  ]);
+  assert.deepEqual(
+    inspection.diagnostics.map((diagnostic) => diagnostic.code),
+    [diagnosticCodes.manifestInvalidType],
+  );
+});
+
+test("loadPluginRoot reports unreadable for malformed plugin.json", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-bad-json-"));
+  writeFileSync(join(root, "plugin.json"), "{");
+
+  const inspection = loadPluginRoot(root);
+  assert.deepEqual(inspection.diagnostics, [
+    {
+      severity: "error",
+      code: diagnosticCodes.manifestUnreadable,
+      message: "Plugin manifest could not be parsed as JSON.",
+      path: "plugin.json",
+    },
+  ]);
+});
+
