@@ -75,6 +75,18 @@ test("invalid fixtures cover major M1 diagnostic categories", () => {
       fixture: "fixtures/invalid/invalid-mcp-server",
       category: /^mcpServer/,
     },
+    {
+      fixture: "fixtures/invalid/unsupported-schema-version",
+      category: /^manifest\.schemaVersion/,
+    },
+    {
+      fixture: "fixtures/invalid/unknown-field",
+      category: /^manifest\.unknown_field$/,
+    },
+    {
+      fixture: "fixtures/invalid/invalid-plugin-name",
+      category: /^manifest\.name/,
+    },
   ];
 
   for (const { fixture, category } of cases) {
