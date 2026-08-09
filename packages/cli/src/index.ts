@@ -3,34 +3,63 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { inspectManifest, loadPluginRoot, type PluginInspection } from "@agent-plugins/core";
+import { loadPluginRoot, type PluginInspection } from "@agent-plugins/core";
+
+const USAGE = `Usage: agent-plugin <command> [path]
+
+Commands:
+  validate [path]  Validate a plugin root (defaults to cwd)
+  inspect  [path]  Inspect portable components as JSON (defaults to cwd)
+`;
 
 export function run(argv: readonly string[]): number {
   const [command, maybePath] = argv;
-  const pluginPath = resolve(maybePath ?? process.cwd());
 
   switch (command) {
-    case "inspect-empty":
-      return printInspection(inspectManifest({}));
     case "validate":
-      return validatePlugin(pluginPath);
+      return isHelpToken(maybePath) ? printUsage(0) : validatePlugin(resolve(maybePath ?? process.cwd()));
     case "inspect":
-      return printInspection(loadPluginRoot(pluginPath));
+      return isHelpToken(maybePath)
+        ? printUsage(0)
+        : printInspection(loadPluginRoot(resolve(maybePath ?? process.cwd())));
+    case "help":
+    case "--help":
+    case "-h":
+    case undefined:
+      return printUsage(0);
     default:
-      console.log("agent-plugin: bootstrap CLI");
-      return 0;
+      console.error(`Unknown command: ${command}\n\n${USAGE.trimEnd()}`);
+      return 1;
   }
+}
+
+function isHelpToken(token: string | undefined): boolean {
+  switch (token) {
+    case "help":
+    case "--help":
+    case "-h":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function printUsage(exitCode: number): number {
+  console.log(USAGE.trimEnd());
+  return exitCode;
 }
 
 function validatePlugin(pluginPath: string): number {
   const inspection = loadPluginRoot(pluginPath);
   const hasError = inspection.diagnostics.some((diagnostic) => diagnostic.severity === "error");
-  if (hasError) {
-    console.error(JSON.stringify(inspection.diagnostics, null, 2));
-    return 1;
+  switch (hasError) {
+    case true:
+      console.error(JSON.stringify(inspection.diagnostics, null, 2));
+      return 1;
+    case false:
+      console.log(JSON.stringify({ ok: true }));
+      return 0;
   }
-  console.log(JSON.stringify({ ok: true }));
-  return 0;
 }
 
 function printInspection(inspection: PluginInspection): number {

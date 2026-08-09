@@ -1,5 +1,10 @@
 {
   "name": "hello-world",
   "version": "1.0.0",
-  "description": "Valid hello-world fixture."
+  "description": "Valid hello-world fixture.",
+  "extensions": {
+    "com.example.flags": {
+      "demo": true
+    }
+  }
 }

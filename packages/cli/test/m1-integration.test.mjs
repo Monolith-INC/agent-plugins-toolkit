@@ -43,11 +43,45 @@ test("inspect reports hello-world portable components", () => {
   assert.equal(code.exitCode, 0);
   const inspection = JSON.parse(code.stdout);
   assert.equal(inspection.manifest.name, "hello-world");
+  assert.equal(inspection.manifest.version, "1.0.0");
+  assert.deepEqual(inspection.manifest.extensions, {
+    "com.example.flags": { demo: true },
+  });
   assert.deepEqual(
     inspection.skills.map((skill) => skill.path),
     ["skills/hello-world/SKILL.md"],
   );
   assert.equal(inspection.diagnostics.length, 0);
+});
+
+test("validate and inspect default to the current working directory", () => {
+  const pluginRoot = join(repoRoot, "fixtures/valid/hello-world");
+  const previous = process.cwd();
+  process.chdir(pluginRoot);
+  try {
+    const validate = withCapturedIo(() => run(["validate"]));
+    assert.equal(validate.exitCode, 0);
+    assert.deepEqual(JSON.parse(validate.stdout), { ok: true });
+
+    const inspect = withCapturedIo(() => run(["inspect"]));
+    assert.equal(inspect.exitCode, 0);
+    assert.equal(JSON.parse(inspect.stdout).manifest.name, "hello-world");
+  } finally {
+    process.chdir(previous);
+  }
+});
+
+test("unknown commands print usage and exit non-zero", () => {
+  const result = withCapturedIo(() => run(["not-a-command"]));
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stderr, /Unknown command: not-a-command/);
+  assert.match(result.stderr, /Usage: agent-plugin/);
+});
+
+test("validate --help prints usage instead of treating --help as a path", () => {
+  const result = withCapturedIo(() => run(["validate", "--help"]));
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /Usage: agent-plugin/);
 });
 
 test("inspect reports MCP command metadata without spawning a process", () => {
