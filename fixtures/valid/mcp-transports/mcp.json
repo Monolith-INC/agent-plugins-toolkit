@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "local": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/server.js"],
+      "cwd": "${PLUGIN_DATA}/runtime"
+    },
+    "docs": {
+      "type": "streamable-http",
+      "url": "https://example.com/${PLUGIN_ROOT}/mcp"
+    },
+    "events": {
+      "transport": "sse",
+      "url": "https://example.com/events"
+    }
+  }
+}

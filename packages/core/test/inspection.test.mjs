@@ -88,6 +88,7 @@ test("inspectPlugin returns partial component data alongside diagnostics", () =>
   ]);
   assert.deepEqual(inspection.mcpServers, [
     {
+      transport: "stdio",
       name: "valid-server",
       command: "node",
       args: ["server.js"],
@@ -124,6 +125,7 @@ test("inspectPlugin accepts path and object map component declarations", () => {
       ],
       mcpServers: [
         {
+          transport: "config-path",
           path: "mcp.json",
         },
       ],
@@ -145,11 +147,13 @@ test("inspectPlugin accepts path and object map component declarations", () => {
     }).mcpServers,
     [
       {
+        transport: "stdio",
         name: "local",
         command: "node",
         args: ["server.js"],
       },
       {
+        transport: "config-path",
         name: "shared",
         path: "mcp/shared.json",
       },
@@ -185,11 +189,28 @@ test("all stable diagnostic codes are reachable through inspection", () => {
           name: "",
           command: "",
           args: "invalid-args",
+          cwd: 42,
         },
         {
           name: "invalid-arg",
           command: "node",
           args: ["server.js", 42],
+        },
+        {
+          name: "bad-transport",
+          type: "websocket",
+        },
+        {
+          name: "url-without-transport",
+          url: "https://example.com/mcp",
+        },
+        {
+          name: "sse-missing-url",
+          transport: "sse",
+        },
+        {
+          name: "path-missing",
+          transport: "config-path",
         },
       ],
     }),
@@ -268,6 +289,7 @@ test("loadPluginRoot discovers skills and mcp.json without execution", () => {
   ]);
   assert.deepEqual(inspection.mcpServers, [
     {
+      transport: "stdio",
       name: "docs",
       command: "node",
       args: ["server.js"],
@@ -432,3 +454,66 @@ test("inspectManifest rejects unsupported schema, unknown fields, and invalid na
   assert.deepEqual(preserved.diagnostics, []);
 });
 
+
+test("loadPluginRoot models MCP transports and explicit placeholders", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-mcp-transports-"));
+  writeFileSync(
+    join(root, "plugin.json"),
+    JSON.stringify({ name: "mcp-transports", version: "1.0.0" }),
+  );
+  writeFileSync(
+    join(root, "mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        local: {
+          command: "node",
+          args: ["${PLUGIN_ROOT}/server.js"],
+          cwd: "${PLUGIN_DATA}/runtime",
+        },
+        docs: {
+          type: "streamable-http",
+          url: "https://example.com/${PLUGIN_ROOT}/mcp",
+        },
+        events: {
+          transport: "sse",
+          url: "https://example.com/events",
+        },
+      },
+    }),
+  );
+
+  const inspection = loadPluginRoot(root);
+  assert.deepEqual(inspection.mcpServers, [
+    {
+      transport: "stdio",
+      name: "local",
+      command: "node",
+      args: ["${PLUGIN_ROOT}/server.js"],
+      cwd: "${PLUGIN_DATA}/runtime",
+      placeholders: ["PLUGIN_DATA", "PLUGIN_ROOT"],
+    },
+    {
+      transport: "streamable-http",
+      name: "docs",
+      url: "https://example.com/${PLUGIN_ROOT}/mcp",
+      placeholders: ["PLUGIN_ROOT"],
+    },
+    {
+      transport: "sse",
+      name: "events",
+      url: "https://example.com/events",
+    },
+  ]);
+  assert.deepEqual(inspection.diagnostics, []);
+});
+
+test("missing mcp.json remains valid", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-no-mcp-"));
+  writeFileSync(
+    join(root, "plugin.json"),
+    JSON.stringify({ name: "no-mcp", version: "1.0.0" }),
+  );
+  const inspection = loadPluginRoot(root);
+  assert.equal(Object.hasOwn(inspection, "mcpServers"), false);
+  assert.deepEqual(inspection.diagnostics, []);
+});

@@ -22,8 +22,13 @@ export const diagnosticCodes = {
   mcpServerInvalidType: "mcpServer.invalid_type",
   mcpServerNameRequired: "mcpServer.name.required",
   mcpServerCommandRequired: "mcpServer.command.required",
+  mcpServerUrlRequired: "mcpServer.url.required",
+  mcpServerPathRequired: "mcpServer.path.required",
+  mcpServerTransportUnsupported: "mcpServer.transport.unsupported",
+  mcpServerTransportRequired: "mcpServer.transport.required",
   mcpServerArgsInvalidType: "mcpServer.args.invalid_type",
   mcpServerArgInvalidType: "mcpServer.args.item.invalid_type",
+  mcpServerCwdInvalidType: "mcpServer.cwd.invalid_type",
   manifestUnreadable: "manifest.unreadable",
   skillMissingSkillMd: "skill.missing_skill_md",
 } as const;
@@ -65,12 +70,37 @@ export interface PluginSkill {
   readonly description?: string;
 }
 
-export interface PluginMcpServer {
-  readonly name?: string;
-  readonly path?: string;
-  readonly command?: string;
-  readonly args?: readonly string[];
-}
+export type PluginPlaceholder = "PLUGIN_ROOT" | "PLUGIN_DATA";
+
+export type PluginMcpTransport = "stdio" | "streamable-http" | "sse" | "config-path";
+
+export type PluginMcpServer =
+  | {
+      readonly transport: "stdio";
+      readonly name?: string;
+      readonly command: string;
+      readonly args?: readonly string[];
+      readonly cwd?: string;
+      readonly placeholders?: readonly PluginPlaceholder[];
+    }
+  | {
+      readonly transport: "streamable-http";
+      readonly name?: string;
+      readonly url: string;
+      readonly placeholders?: readonly PluginPlaceholder[];
+    }
+  | {
+      readonly transport: "sse";
+      readonly name?: string;
+      readonly url: string;
+      readonly placeholders?: readonly PluginPlaceholder[];
+    }
+  | {
+      readonly transport: "config-path";
+      readonly name?: string;
+      readonly path: string;
+      readonly placeholders?: readonly PluginPlaceholder[];
+    };
 
 export interface PluginInspection {
   readonly manifest?: PluginManifest;
@@ -302,7 +332,7 @@ function readSkills(value: unknown): ReadResult<readonly PluginSkill[]> {
 function readMcpServers(value: unknown): ReadResult<readonly PluginMcpServer[]> {
   if (value === undefined) return { diagnostics: [] };
   if (typeof value === "string" && value.length > 0) {
-    return { value: [{ path: value }], diagnostics: [] };
+    return { value: [configPathServer(undefined, value)], diagnostics: [] };
   }
   if (isRecord(value)) {
     return readMcpServerMap(value);
@@ -339,21 +369,12 @@ function readMcpServers(value: unknown): ReadResult<readonly PluginMcpServer[]> 
       }
 
       const name = readRequiredString(entry, "name", diagnosticCodes.mcpServerNameRequired, path);
-      const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, path);
-      const args = readOptionalStringArray(entry, "args", path);
-      const diagnostics = [...acc.diagnostics, ...name.diagnostics, ...command.diagnostics, ...args.diagnostics];
-
-      return name.value === undefined || command.value === undefined || !args.isValid
+      const parsed = readMcpServerRecord(entry, path, name.value);
+      const diagnostics = [...acc.diagnostics, ...name.diagnostics, ...parsed.diagnostics];
+      return name.value === undefined || parsed.value === undefined
         ? { value: acc.value ?? [], diagnostics }
         : {
-            value: [
-              ...(acc.value ?? []),
-              {
-                name: name.value,
-                command: command.value,
-                ...(args.value === undefined ? {} : { args: args.value }),
-              },
-            ],
+            value: [...(acc.value ?? []), parsed.value],
             diagnostics,
           };
     },
@@ -367,7 +388,7 @@ function readMcpServerMap(value: Record<string, unknown>): ReadResult<readonly P
       const path = `mcpServers.${name}`;
       if (typeof entry === "string" && entry.length > 0) {
         return {
-          value: [...(acc.value ?? []), { name, path: entry }],
+          value: [...(acc.value ?? []), configPathServer(name, entry)],
           diagnostics: acc.diagnostics,
         };
       }
@@ -387,26 +408,196 @@ function readMcpServerMap(value: Record<string, unknown>): ReadResult<readonly P
         };
       }
 
-      const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, path);
-      const args = readOptionalStringArray(entry, "args", path);
-      const diagnostics = [...acc.diagnostics, ...command.diagnostics, ...args.diagnostics];
-
-      return command.value === undefined || !args.isValid
-        ? { value: acc.value ?? [], diagnostics }
-        : {
-            value: [
-              ...(acc.value ?? []),
-              {
-                name,
-                command: command.value,
-                ...(args.value === undefined ? {} : { args: args.value }),
-              },
-            ],
-            diagnostics,
-          };
+      const parsed = readMcpServerRecord(entry, path, name);
+      return {
+        value: [...(acc.value ?? []), ...(parsed.value === undefined ? [] : [parsed.value])],
+        diagnostics: [...acc.diagnostics, ...parsed.diagnostics],
+      };
     },
     { value: [], diagnostics: [] },
   );
+}
+
+function readMcpServerRecord(
+  entry: Record<string, unknown>,
+  path: string,
+  name: string | undefined,
+): ReadResult<PluginMcpServer> {
+  const transport = readDeclaredTransport(entry, path);
+  if (transport.diagnostics.length > 0 && transport.value === undefined) {
+    return { diagnostics: transport.diagnostics };
+  }
+
+  switch (transport.value) {
+    case "stdio":
+      return readStdioServer(entry, path, name, transport.diagnostics);
+    case "streamable-http":
+    case "sse":
+      return readHttpServer(entry, path, name, transport.value, transport.diagnostics);
+    case "config-path": {
+      const configPath = readRequiredString(entry, "path", diagnosticCodes.mcpServerPathRequired, path);
+      return configPath.value === undefined
+        ? { diagnostics: [...transport.diagnostics, ...configPath.diagnostics] }
+        : {
+            value: configPathServer(name, configPath.value),
+            diagnostics: [...transport.diagnostics, ...configPath.diagnostics],
+          };
+    }
+    case undefined:
+      return inferMcpServer(entry, path, name, transport.diagnostics);
+    default:
+      return { diagnostics: transport.diagnostics };
+  }
+}
+
+function inferMcpServer(
+  entry: Record<string, unknown>,
+  path: string,
+  name: string | undefined,
+  prior: readonly Diagnostic[],
+): ReadResult<PluginMcpServer> {
+  const hasCommand = entry["command"] !== undefined;
+  const hasUrl = entry["url"] !== undefined;
+  switch (true) {
+    case hasCommand:
+      return readStdioServer(entry, path, name, prior);
+    case hasUrl:
+      return {
+        diagnostics: [
+          ...prior,
+          createDiagnostic({
+            severity: "error",
+            code: diagnosticCodes.mcpServerTransportRequired,
+            message:
+              'MCP server with "url" must declare transport "streamable-http" or "sse" via "type" or "transport".',
+            path: formatPath(path, "transport"),
+          }),
+        ],
+      };
+    default:
+      return readStdioServer(entry, path, name, prior);
+  }
+}
+
+function readDeclaredTransport(
+  entry: Record<string, unknown>,
+  path: string,
+): ReadResult<PluginMcpTransport> {
+  const raw = entry["type"] ?? entry["transport"];
+  if (raw === undefined) return { diagnostics: [] };
+  switch (raw) {
+    case "stdio":
+      return { value: "stdio", diagnostics: [] };
+    case "streamable-http":
+      return { value: "streamable-http", diagnostics: [] };
+    case "sse":
+      return { value: "sse", diagnostics: [] };
+    case "config-path":
+      return { value: "config-path", diagnostics: [] };
+    default:
+      return {
+        diagnostics: [
+          createDiagnostic({
+            severity: "error",
+            code: diagnosticCodes.mcpServerTransportUnsupported,
+            message:
+              'MCP server transport must be one of "stdio", "streamable-http", "sse", or "config-path".',
+            path: formatPath(path, typeof entry["type"] === "undefined" ? "transport" : "type"),
+          }),
+        ],
+      };
+  }
+}
+
+function readStdioServer(
+  entry: Record<string, unknown>,
+  path: string,
+  name: string | undefined,
+  prior: readonly Diagnostic[],
+): ReadResult<PluginMcpServer> {
+  const command = readRequiredString(entry, "command", diagnosticCodes.mcpServerCommandRequired, path);
+  const args = readOptionalStringArray(entry, "args", path);
+  const cwd = readOptionalString(entry, "cwd", diagnosticCodes.mcpServerCwdInvalidType, path);
+  const diagnostics = [...prior, ...command.diagnostics, ...args.diagnostics, ...cwd.diagnostics];
+  return command.value === undefined || !args.isValid
+    ? { diagnostics }
+    : {
+        value: withPlaceholders({
+          transport: "stdio",
+          ...(name === undefined ? {} : { name }),
+          command: command.value,
+          ...(args.value === undefined ? {} : { args: args.value }),
+          ...(cwd.value === undefined ? {} : { cwd: cwd.value }),
+        }),
+        diagnostics,
+      };
+}
+
+function readHttpServer(
+  entry: Record<string, unknown>,
+  path: string,
+  name: string | undefined,
+  transport: "streamable-http" | "sse",
+  prior: readonly Diagnostic[],
+): ReadResult<PluginMcpServer> {
+  const url = readRequiredString(entry, "url", diagnosticCodes.mcpServerUrlRequired, path);
+  const diagnostics = [...prior, ...url.diagnostics];
+  return url.value === undefined
+    ? { diagnostics }
+    : {
+        value: withPlaceholders({
+          transport,
+          ...(name === undefined ? {} : { name }),
+          url: url.value,
+        }),
+        diagnostics,
+      };
+}
+
+function configPathServer(name: string | undefined, configPath: string): PluginMcpServer {
+  return withPlaceholders({
+    transport: "config-path",
+    ...(name === undefined ? {} : { name }),
+    path: configPath,
+  });
+}
+
+function withPlaceholders<T extends PluginMcpServer>(server: T): T {
+  const values = collectPlaceholderValues(server);
+  const placeholders = collectPlaceholders(...values);
+  return placeholders.length === 0 ? server : ({ ...server, placeholders } as T);
+}
+
+function collectPlaceholderValues(server: PluginMcpServer): readonly (string | undefined)[] {
+  switch (server.transport) {
+    case "stdio":
+      return [server.command, server.cwd, ...(server.args ?? [])];
+    case "streamable-http":
+    case "sse":
+      return [server.url];
+    case "config-path":
+      return [server.path];
+  }
+}
+
+const PLACEHOLDER_PATTERN = /\$\{(PLUGIN_ROOT|PLUGIN_DATA)\}/g;
+
+function collectPlaceholders(...values: readonly (string | undefined)[]): readonly PluginPlaceholder[] {
+  return values
+    .flatMap((value) => (value === undefined ? [] : [...value.matchAll(PLACEHOLDER_PATTERN)]))
+    .map((match) => match[1] as PluginPlaceholder)
+    .reduce<readonly PluginPlaceholder[]>(
+      (acc, placeholder) => (acc.includes(placeholder) ? acc : insertSortedPlaceholder(acc, placeholder)),
+      [],
+    );
+}
+
+function insertSortedPlaceholder(
+  items: readonly PluginPlaceholder[],
+  item: PluginPlaceholder,
+): readonly PluginPlaceholder[] {
+  const index = items.findIndex((existing) => item.localeCompare(existing, "en") < 0);
+  return index === -1 ? [...items, item] : [...items.slice(0, index), item, ...items.slice(index)];
 }
 
 function readRequiredString(

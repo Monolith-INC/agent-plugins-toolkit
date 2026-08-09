@@ -1,0 +1,5 @@
+{
+  "name": "mcp-transports",
+  "version": "1.0.0",
+  "description": "stdio, streamable-http, and SSE MCP transports with placeholders."
+}
