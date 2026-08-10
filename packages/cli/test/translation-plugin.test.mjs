@@ -28,7 +28,33 @@ test("translation plugin inspect reports multiple skills deterministically", () 
     inspection.skills.map((skill) => ({ name: skill.name, path: skill.path })),
     expected.skills,
   );
+  assert.deepEqual(inspection.mcpServers, expected.mcpServers);
   assert.equal(inspection.diagnostics.length, 0);
+});
+
+test("translation remains valid without optional MCP configuration", () => {
+  const result = withCapturedIo(() =>
+    run(["validate", join(repoRoot, "fixtures/valid/translation-without-mcp")]),
+  );
+  assert.equal(result.exitCode, 0);
+});
+
+test("malformed and unsupported terminology MCP fixtures diagnose without execution", () => {
+  const malformed = withCapturedIo(() =>
+    run(["validate", join(repoRoot, "fixtures/invalid/translation-terminology-malformed")]),
+  );
+  assert.equal(malformed.exitCode, 1);
+  assert.ok(
+    JSON.parse(malformed.stderr).some((d) => d.code === "mcpServers.invalid_type"),
+  );
+
+  const unsupported = withCapturedIo(() =>
+    run(["validate", join(repoRoot, "fixtures/invalid/translation-terminology-unsupported")]),
+  );
+  assert.equal(unsupported.exitCode, 1);
+  assert.ok(
+    JSON.parse(unsupported.stderr).some((d) => d.code === "mcpServer.transport.unsupported"),
+  );
 });
 
 function withCapturedIo(action) {

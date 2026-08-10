@@ -18,5 +18,20 @@
       "name": "translate",
       "path": "skills/translate/SKILL.md"
     }
+  ],
+  "mcpServers": [
+    {
+      "transport": "stdio",
+      "name": "terminology",
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/servers/terminology.js"
+      ],
+      "cwd": "${PLUGIN_DATA}/terminology",
+      "placeholders": [
+        "PLUGIN_DATA",
+        "PLUGIN_ROOT"
+      ]
+    }
   ]
 }
