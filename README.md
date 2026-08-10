@@ -123,3 +123,7 @@ pnpm build:testing
 pnpm typecheck
 pnpm test
 ```
+
+## Translation plugin dogfood
+
+See [docs/translation-plugin-dogfood.md](docs/translation-plugin-dogfood.md) for the M3 multi-Skill portable consumer and its intentional non-goals.
