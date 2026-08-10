@@ -1,0 +1,10 @@
+{
+  "id": "missing-skill-md",
+  "kind": "invalid",
+  "description": "Skill directory without SKILL.md.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "skill.missing_skill_md"
+  ],
+  "requireManifest": true
+}

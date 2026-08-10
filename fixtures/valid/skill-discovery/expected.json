@@ -1,0 +1,13 @@
+{
+  "id": "skill-discovery",
+  "kind": "valid",
+  "description": "Immediate-child skills only; nested skill ignored.",
+  "validateExitCode": 0,
+  "diagnosticCodes": [],
+  "requireManifest": true,
+  "skillPaths": [
+    "skills/alpha/SKILL.md",
+    "skills/beta/SKILL.md",
+    "skills/zeta/SKILL.md"
+  ]
+}

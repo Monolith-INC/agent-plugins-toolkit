@@ -1,0 +1,5 @@
+{
+  "name": "@acme/scoped-name",
+  "version": "1.0.0",
+  "description": "Valid scoped plugin name fixture."
+}

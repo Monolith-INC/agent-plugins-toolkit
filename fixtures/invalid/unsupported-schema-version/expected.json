@@ -1,0 +1,10 @@
+{
+  "id": "unsupported-schema-version",
+  "kind": "invalid",
+  "description": "Unsupported schemaVersion rejected.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.schemaVersion.unsupported"
+  ],
+  "requireManifest": false
+}

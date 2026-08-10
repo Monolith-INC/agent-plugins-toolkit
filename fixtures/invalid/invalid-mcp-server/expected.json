@@ -1,0 +1,10 @@
+{
+  "id": "invalid-mcp-server",
+  "kind": "invalid",
+  "description": "MCP server missing required command.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "mcpServer.command.required"
+  ],
+  "requireManifest": true
+}

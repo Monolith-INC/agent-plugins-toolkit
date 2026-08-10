@@ -1,0 +1,10 @@
+{
+  "id": "invalid-description",
+  "kind": "invalid",
+  "description": "Non-string description emits diagnostic; identity fields remain.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.description.invalid_type"
+  ],
+  "requireManifest": true
+}

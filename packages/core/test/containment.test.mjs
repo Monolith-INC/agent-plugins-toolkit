@@ -87,3 +87,21 @@ test("loadPluginRoot rejects mcp.json symlink escapes", () => {
   assert.ok(inspection.diagnostics.some((d) => d.code === diagnosticCodes.pathEscape));
   assert.equal(inspection.mcpServers, undefined);
 });
+
+test("resolveContained rejects missing paths under escaping symlink ancestors", () => {
+  const outside = mkdtempSync(join(tmpdir(), "agent-plugins-outside-ancestor-"));
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-escape-ancestor-"));
+  symlinkSync(outside, join(root, "link"));
+  const escaped = resolveContained(root, "link/new-file");
+  assert.equal(escaped.ok, false);
+  if (!escaped.ok) assert.equal(escaped.diagnostic.code, diagnosticCodes.pathEscape);
+});
+
+test("resolveContained rejects dangling symlink escape targets", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-plugins-dangling-"));
+  const missingOutside = join(tmpdir(), "agent-plugins-definitely-missing");
+  symlinkSync(missingOutside, join(root, "dangling"));
+  const escaped = resolveContained(root, "dangling");
+  assert.equal(escaped.ok, false);
+  if (!escaped.ok) assert.equal(escaped.diagnostic.code, diagnosticCodes.pathEscape);
+});

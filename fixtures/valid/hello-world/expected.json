@@ -1,0 +1,11 @@
+{
+  "id": "hello-world",
+  "kind": "valid",
+  "description": "Minimal valid plugin with one skill and opaque extensions.",
+  "validateExitCode": 0,
+  "diagnosticCodes": [],
+  "requireManifest": true,
+  "skillPaths": [
+    "skills/hello-world/SKILL.md"
+  ]
+}
