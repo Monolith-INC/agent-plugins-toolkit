@@ -37,9 +37,10 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 
 ### AGE-17 — Cursor adapter
 
-- [ ] Pin Cursor schema evidence and keep all Cursor names, paths, frontmatter, events, rendering, validation, and plan rules inside the adapter.
-- [ ] Generate, validate, ship, and drift-protect the hello-world Cursor payload.
-- [ ] Pass the shared conformance suite; merge `feature/age-17-cursor-adapter` into the Feature branch.
+- [x] Pin Cursor schema evidence and keep all Cursor names, paths, frontmatter, events, rendering, validation, and plan rules inside the adapter.
+- [x] Generate, validate, ship, and drift-protect the hello-world Cursor payload.
+- [x] Pass the shared conformance suite.
+- [ ] Merge `feature/age-17-cursor-adapter` into the Feature branch.
 
 ### AGE-18 — Claude adapter
 

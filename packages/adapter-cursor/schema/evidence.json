@@ -1,0 +1,16 @@
+{
+  "vendor": "cursor",
+  "snapshot": "cursor-plugins-2026-08-10",
+  "retrieved": "2026-08-10",
+  "sources": [
+    "https://cursor.com/docs/reference/plugins",
+    "https://cursor.com/docs/hooks"
+  ],
+  "manifest": ".cursor-plugin/plugin.json",
+  "components": {
+    "skills": "skills/*/SKILL.md",
+    "rules": "rules/*.mdc",
+    "hooks": "hooks/hooks.json",
+    "mcp": "mcp.json"
+  }
+}
