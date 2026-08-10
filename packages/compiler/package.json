@@ -1,0 +1,23 @@
+{
+  "name": "@agent-plugins/compiler",
+  "version": "0.1.0",
+  "description": "Deterministic vendor bundle contracts and compiler primitives for Agent Plugins.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "tsc -b tsconfig.json && node --test test/**/*.test.mjs"
+  },
+  "dependencies": {
+    "@agent-plugins/core": "workspace:*"
+  }
+}
