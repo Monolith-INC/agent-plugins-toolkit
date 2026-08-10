@@ -3,7 +3,18 @@
     "name": "translation",
     "version": "0.1.0",
     "description": "Portable translation workflows for draft, review, and terminology assistance.",
-    "schemaVersion": "1.0.0"
+    "schemaVersion": "1.0.0",
+    "extensions": {
+      "com.acme.translation": {
+        "defaultTargetLocale": "pt-BR",
+        "glossaryRef": "glossaries/product.json",
+        "reviewRubric": [
+          "accuracy",
+          "fluency",
+          "terminology"
+        ]
+      }
+    }
   },
   "skills": [
     {
@@ -17,6 +28,21 @@
     {
       "name": "translate",
       "path": "skills/translate/SKILL.md"
+    }
+  ],
+  "mcpServers": [
+    {
+      "transport": "stdio",
+      "name": "terminology",
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/servers/terminology.js"
+      ],
+      "cwd": "${PLUGIN_DATA}/terminology",
+      "placeholders": [
+        "PLUGIN_DATA",
+        "PLUGIN_ROOT"
+      ]
     }
   ]
 }

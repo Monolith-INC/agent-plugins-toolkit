@@ -1,0 +1,9 @@
+{
+  "terminology": {
+    "command": "node",
+    "args": [
+      "${PLUGIN_ROOT}/servers/terminology.js"
+    ],
+    "cwd": "${PLUGIN_DATA}/terminology"
+  }
+}

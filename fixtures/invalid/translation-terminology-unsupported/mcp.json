@@ -1,0 +1,6 @@
+{
+  "terms": {
+    "type": "websocket",
+    "url": "wss://example.com"
+  }
+}
