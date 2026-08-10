@@ -1,0 +1,22 @@
+{
+  "manifest": {
+    "name": "translation",
+    "version": "0.1.0",
+    "description": "Portable translation workflows for draft, review, and terminology assistance.",
+    "schemaVersion": "1.0.0"
+  },
+  "skills": [
+    {
+      "name": "review",
+      "path": "skills/review/SKILL.md"
+    },
+    {
+      "name": "terminology",
+      "path": "skills/terminology/SKILL.md"
+    },
+    {
+      "name": "translate",
+      "path": "skills/translate/SKILL.md"
+    }
+  ]
+}
