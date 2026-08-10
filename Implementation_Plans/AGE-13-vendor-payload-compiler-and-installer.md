@@ -54,14 +54,15 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Pin Codex schema evidence and keep all Codex names, paths, matchers, events, rendering, validation, and plan rules inside the adapter.
 - [x] Generate, validate, ship, and drift-protect the hello-world Codex payload.
 - [x] Pass the shared conformance suite.
-- [ ] Merge `feature/age-19-codex-adapter` into the Feature branch.
+- [x] Merge `feature/age-19-codex-adapter` into the Feature branch.
 
 ### AGE-20 — Transactional installer
 
-- [ ] Implement bundle/plan/target preflight, digest and symlink checks, collision handling, and an exclusive target lock.
-- [ ] Implement same-filesystem staging, durable journal entries, deterministic commit, installed-record verification, and cleanup.
-- [ ] Implement idempotent reinstall, upgrade/removal of stale owned files, reverse rollback, and preserved recovery journals.
-- [ ] Cover every mutation fault point and exact managed-state restoration; merge `feature/age-20-transactional-installer` into the Feature branch.
+- [x] Implement bundle/plan/target preflight, digest and symlink checks, collision handling, and an exclusive target lock.
+- [x] Implement same-filesystem staging, durable journal entries, deterministic commit, installed-record verification, and cleanup.
+- [x] Implement idempotent reinstall, upgrade/removal of stale owned files, reverse rollback, and preserved recovery journals.
+- [x] Cover every mutation fault point and exact managed-state restoration.
+- [ ] Merge `feature/age-20-transactional-installer` into the Feature branch.
 
 ### AGE-21 — Single install command
 
