@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 export type DiagnosticSeverity = "error" | "warning" | "info";
 
@@ -31,6 +31,7 @@ export const diagnosticCodes = {
   mcpServerCwdInvalidType: "mcpServer.cwd.invalid_type",
   manifestUnreadable: "manifest.unreadable",
   skillMissingSkillMd: "skill.missing_skill_md",
+  pathEscape: "path.escape",
 } as const;
 
 export type DiagnosticCode = (typeof diagnosticCodes)[keyof typeof diagnosticCodes] | (string & {});
@@ -763,11 +764,94 @@ type JsonRead =
   | { readonly kind: "invalid" }
   | { readonly kind: "ok"; readonly value: unknown };
 
+
+export type ContainedPath =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly diagnostic: Diagnostic };
+
+export function isPathInside(root: string, candidate: string): boolean {
+  const rootPath = existingRealPath(root) ?? resolve(root);
+  const candidatePath = existingRealPath(candidate) ?? resolve(candidate);
+  const relation = relative(rootPath, candidatePath);
+  return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
+}
+
+export function resolveContained(root: string, relativePath: string): ContainedPath {
+  if (hasTraversalSegment(relativePath) || isAbsolute(relativePath)) {
+    return {
+      ok: false,
+      diagnostic: createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.pathEscape,
+        message: "Path escapes the plugin root.",
+        path: relativePath,
+      }),
+    };
+  }
+
+  const absolute = join(resolve(root), ...relativePath.split(/[\\/]/).filter((part) => part.length > 0));
+  if (!isPathInside(root, absolute)) {
+    return {
+      ok: false,
+      diagnostic: createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.pathEscape,
+        message: "Path escapes the plugin root.",
+        path: relativePath,
+      }),
+    };
+  }
+
+  return { ok: true, path: absolute };
+}
+
+function existingRealPath(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+function hasTraversalSegment(rawPath: string): boolean {
+  return rawPath.split(/[\\/]/).some((segment) => segment === "..");
+}
+
+function pathEscapeDiagnostic(relativePath: string): Diagnostic {
+  return createDiagnostic({
+    severity: "error",
+    code: diagnosticCodes.pathEscape,
+    message: "Path escapes the plugin root.",
+    path: relativePath,
+  });
+}
+
 export function loadPluginRoot(root: string): PluginInspection {
   const pluginRoot = resolve(root);
-  const skillDiscovery = discoverSkills(pluginRoot);
-  const mcpDiscovery = discoverMcpServers(pluginRoot);
-  return foldManifestRead(readJson(join(pluginRoot, "plugin.json")), skillDiscovery, mcpDiscovery);
+  const rootReal = existingRealPath(pluginRoot) ?? pluginRoot;
+  const skillDiscovery = discoverSkills(rootReal);
+  const mcpDiscovery = discoverMcpServers(rootReal);
+  const manifestPath = join(rootReal, "plugin.json");
+  const manifestContained = isPathInside(rootReal, manifestPath);
+  if (!manifestContained && existsPath(manifestPath)) {
+    return {
+      diagnostics: [
+        pathEscapeDiagnostic("plugin.json"),
+        ...skillDiscovery.diagnostics,
+        ...mcpDiscovery.diagnostics,
+      ],
+    };
+  }
+  return foldManifestRead(readJson(manifestPath), skillDiscovery, mcpDiscovery);
+}
+
+function existsPath(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function foldManifestRead(
@@ -887,14 +971,36 @@ function discoverSkills(pluginRoot: string): {
   readonly skills: readonly Record<string, unknown>[];
   readonly diagnostics: readonly Diagnostic[];
 } {
-  return listDirectories(join(pluginRoot, "skills")).reduce<{
+  const skillsDir = join(pluginRoot, "skills");
+  if (existsPath(skillsDir) && !isPathInside(pluginRoot, skillsDir)) {
+    return { skills: [], diagnostics: [pathEscapeDiagnostic("skills")] };
+  }
+
+  return listDirectories(skillsDir).reduce<{
     readonly skills: readonly Record<string, unknown>[];
     readonly diagnostics: readonly Diagnostic[];
   }>(
     (acc, entry) => {
-      const relativeSkillPath = `skills/${entry}/SKILL.md`;
-      const skillFile = readText(join(pluginRoot, relativeSkillPath));
+      if (hasTraversalSegment(entry)) {
+        return {
+          skills: acc.skills,
+          diagnostics: [...acc.diagnostics, pathEscapeDiagnostic(`skills/${entry}`)],
+        };
+      }
 
+      const relativeSkillPath = `skills/${entry}/SKILL.md`;
+      const skillDir = join(pluginRoot, "skills", entry);
+      const skillFilePath = join(pluginRoot, relativeSkillPath);
+
+      if ((existsPath(skillDir) && !isPathInside(pluginRoot, skillDir)) ||
+          (existsPath(skillFilePath) && !isPathInside(pluginRoot, skillFilePath))) {
+        return {
+          skills: acc.skills,
+          diagnostics: [...acc.diagnostics, pathEscapeDiagnostic(relativeSkillPath)],
+        };
+      }
+
+      const skillFile = readText(skillFilePath);
       return skillFile === undefined
         ? {
             skills: acc.skills,
@@ -933,7 +1039,12 @@ function discoverMcpServers(pluginRoot: string): {
   readonly mcpServers: unknown;
   readonly diagnostics: readonly Diagnostic[];
 } {
-  const mcpRead = readJson(join(pluginRoot, "mcp.json"));
+  const mcpPath = join(pluginRoot, "mcp.json");
+  if (existsPath(mcpPath) && !isPathInside(pluginRoot, mcpPath)) {
+    return { mcpServers: undefined, diagnostics: [pathEscapeDiagnostic("mcp.json")] };
+  }
+
+  const mcpRead = readJson(mcpPath);
   switch (mcpRead.kind) {
     case "missing":
       return { mcpServers: undefined, diagnostics: [] };
@@ -981,7 +1092,7 @@ function readText(absolutePath: string): string | undefined {
 function listDirectories(directory: string): readonly string[] {
   try {
     return readdirSync(directory, { withFileTypes: true })
-      .flatMap((entry) => (entry.isDirectory() ? [entry.name] : []))
+      .flatMap((entry) => (entry.isDirectory() || entry.isSymbolicLink() ? [entry.name] : []))
       .reduce<readonly string[]>(insertSorted, []);
   } catch {
     return [];
