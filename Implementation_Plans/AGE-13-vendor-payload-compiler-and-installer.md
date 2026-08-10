@@ -47,13 +47,14 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Pin Claude schema evidence and keep all Claude names, paths, events, rendering, validation, and plan rules inside the adapter.
 - [x] Generate, validate, ship, and drift-protect the hello-world Claude payload.
 - [x] Pass the shared conformance suite.
-- [ ] Merge `feature/age-18-claude-adapter` into the Feature branch.
+- [x] Merge `feature/age-18-claude-adapter` into the Feature branch.
 
 ### AGE-19 — Codex adapter
 
-- [ ] Pin Codex schema evidence and keep all Codex names, paths, matchers, events, rendering, validation, and plan rules inside the adapter.
-- [ ] Generate, validate, ship, and drift-protect the hello-world Codex payload.
-- [ ] Pass the shared conformance suite; merge `feature/age-19-codex-adapter` into the Feature branch.
+- [x] Pin Codex schema evidence and keep all Codex names, paths, matchers, events, rendering, validation, and plan rules inside the adapter.
+- [x] Generate, validate, ship, and drift-protect the hello-world Codex payload.
+- [x] Pass the shared conformance suite.
+- [ ] Merge `feature/age-19-codex-adapter` into the Feature branch.
 
 ### AGE-20 — Transactional installer
 
