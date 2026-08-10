@@ -1,9 +1,27 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+} from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { PluginInspection, PluginManifest } from "@agent-plugins/core";
+import {
+  finalizeVendorBundle,
+  listVendorAdapters,
+  validateInstallPlan,
+  type CanonicalPlugin,
+  type InstallPlan,
+  type InstallTarget,
+  type PortableFileMode,
+  type Sha256,
+  type VendorAdapter,
+  type VendorBundle,
+} from "@agent-plugins/compiler";
 
 export interface FixtureExpectation {
   readonly id: string;
@@ -18,6 +36,28 @@ export interface FixtureExpectation {
 export type ExpectationRead =
   | { readonly ok: true; readonly value: FixtureExpectation }
   | { readonly ok: false; readonly message: string };
+
+export interface GoldenPayloadFile {
+  readonly path: string;
+  readonly sha256: Sha256;
+  readonly bytes: number;
+  readonly mode: PortableFileMode;
+  readonly contentBase64: string;
+}
+
+export interface AdapterConformanceInput {
+  readonly adapter: VendorAdapter;
+  readonly plugin: CanonicalPlugin;
+  readonly target: InstallTarget;
+  readonly golden?: readonly GoldenPayloadFile[];
+}
+
+export interface AdapterConformanceEvidence {
+  readonly vendor: VendorAdapter["vendor"];
+  readonly bundle: VendorBundle;
+  readonly plan: InstallPlan;
+  readonly golden: readonly GoldenPayloadFile[];
+}
 
 export function createManifestFixture(overrides: Partial<PluginManifest> = {}): PluginManifest {
   return {
@@ -107,6 +147,122 @@ export function assertFixtureExpectation(
   );
 }
 
+export function captureGoldenPayload(
+  bundle: VendorBundle,
+): readonly GoldenPayloadFile[] {
+  return Object.freeze(
+    bundle.files.map((file) =>
+      Object.freeze({
+        path: file.path,
+        sha256: file.sha256,
+        bytes: file.bytes,
+        mode: file.mode,
+        contentBase64: Buffer.from(file.content).toString("base64"),
+      }),
+    ),
+  );
+}
+
+export function assertGoldenPayload(
+  actual: VendorBundle,
+  expected: readonly GoldenPayloadFile[],
+): void {
+  assert.deepEqual(captureGoldenPayload(actual), expected);
+}
+
+export function assertVendorAdapterConformance(
+  input: AdapterConformanceInput,
+): AdapterConformanceEvidence {
+  const sourceBefore = snapshotTree(input.plugin.root);
+  const targetBefore = snapshotTree(input.target.root);
+  const pluginBefore = structuredClone(input.plugin);
+
+  try {
+    const firstDraft = input.adapter.compile(input.plugin);
+    const secondDraft = input.adapter.compile(input.plugin);
+    assert.equal(firstDraft.ok, true, formatResultFailure("first compile", firstDraft));
+    assert.equal(secondDraft.ok, true, formatResultFailure("second compile", secondDraft));
+    if (!firstDraft.ok || !secondDraft.ok) {
+      throw new assert.AssertionError({ message: "Adapter compile failed." });
+    }
+    for (const draft of [firstDraft.value, secondDraft.value]) {
+      assert.deepEqual(draft.plugin, {
+        name: input.plugin.manifest.name,
+        version: input.plugin.manifest.version,
+      });
+      assert.equal(draft.vendor, input.adapter.vendor);
+      assert.deepEqual(draft.adapter, {
+        version: input.adapter.adapterVersion,
+        vendorSchemaVersion: input.adapter.vendorSchemaVersion,
+      });
+      assert.equal(draft.sourceDigest, input.plugin.sourceDigest);
+    }
+
+    const firstBundle = finalizeVendorBundle(firstDraft.value);
+    const secondBundle = finalizeVendorBundle(secondDraft.value);
+    assert.equal(firstBundle.ok, true, formatResultFailure("first bundle", firstBundle));
+    assert.equal(secondBundle.ok, true, formatResultFailure("second bundle", secondBundle));
+    if (!firstBundle.ok || !secondBundle.ok) {
+      throw new assert.AssertionError({ message: "Adapter bundle finalization failed." });
+    }
+
+    assert.deepEqual(firstBundle.value.manifest, secondBundle.value.manifest);
+    assert.deepEqual(captureGoldenPayload(firstBundle.value), captureGoldenPayload(secondBundle.value));
+    assert.deepEqual(input.adapter.validate(firstBundle.value), []);
+    assert.deepEqual(input.adapter.validate(secondBundle.value), []);
+
+    const firstPlan = input.adapter.planInstallation(firstBundle.value, input.target);
+    const secondPlan = input.adapter.planInstallation(secondBundle.value, input.target);
+    assert.equal(firstPlan.ok, true, formatResultFailure("first plan", firstPlan));
+    assert.equal(secondPlan.ok, true, formatResultFailure("second plan", secondPlan));
+    if (!firstPlan.ok || !secondPlan.ok) {
+      throw new assert.AssertionError({ message: "Adapter installation planning failed." });
+    }
+    assert.deepEqual(firstPlan.value, secondPlan.value);
+    assert.deepEqual(validateInstallPlan(firstPlan.value, firstBundle.value), []);
+
+    const golden = captureGoldenPayload(firstBundle.value);
+    if (input.golden !== undefined) assert.deepEqual(golden, input.golden);
+
+    return Object.freeze({
+      vendor: input.adapter.vendor,
+      bundle: firstBundle.value,
+      plan: firstPlan.value,
+      golden,
+    });
+  } finally {
+    assert.deepEqual(input.plugin, pluginBefore, "adapter mutated canonical input");
+    assert.deepEqual(snapshotTree(input.target.root), targetBefore, "adapter mutated the installation target");
+    assert.deepEqual(snapshotTree(input.plugin.root), sourceBefore, "adapter mutated the build filesystem");
+  }
+}
+
+export function assertAdapterModuleHasNoFilesystemEffects(
+  source: string,
+  label = "adapter module",
+): void {
+  const childProcessModule = `node:child_${"process"}`;
+  const forbidden = new RegExp(
+    `(?:node:fs(?:/promises)?|["']fs["']|${childProcessModule}|process\\.chdir|Deno\\.|Bun\\.)`,
+    "u",
+  );
+  assert.doesNotMatch(
+    source,
+    forbidden,
+    `${label} imports or invokes a filesystem/process mutation capability`,
+  );
+}
+
+export function assertCompleteVendorConformance(
+  evidence: readonly AdapterConformanceEvidence[],
+): void {
+  assert.deepEqual(
+    evidence.map((entry) => entry.vendor),
+    listVendorAdapters(),
+    "conformance must run once in lexical order for Claude, Codex, and Cursor",
+  );
+}
+
 function parseFixtureExpectation(value: unknown): ExpectationRead {
   if (!isRecord(value)) {
     return { ok: false, message: "expected.json must be an object" };
@@ -139,6 +295,58 @@ function parseFixtureExpectation(value: unknown): ExpectationRead {
       ...(skillPaths.value === undefined ? {} : { skillPaths: skillPaths.value }),
     },
   };
+}
+
+interface TreeEntry {
+  readonly path: string;
+  readonly kind: "directory" | "file" | "symlink" | "other";
+  readonly mode: number;
+  readonly contentBase64?: string;
+  readonly link?: string;
+}
+
+function snapshotTree(root: string): readonly TreeEntry[] {
+  const absoluteRoot = resolve(root);
+  if (!existsSync(absoluteRoot)) return [];
+  return snapshotEntry(absoluteRoot, ".");
+}
+
+function snapshotEntry(absolutePath: string, relativePath: string): readonly TreeEntry[] {
+  const stat = lstatSync(absolutePath);
+  const mode = stat.mode & 0o777;
+  if (stat.isSymbolicLink()) {
+    return [{ path: relativePath, kind: "symlink", mode, link: readlinkSync(absolutePath) }];
+  }
+  if (stat.isFile()) {
+    return [{
+      path: relativePath,
+      kind: "file",
+      mode,
+      contentBase64: readFileSync(absolutePath).toString("base64"),
+    }];
+  }
+  if (!stat.isDirectory()) return [{ path: relativePath, kind: "other", mode }];
+
+  const children = readdirSync(absolutePath).sort(compareStrings);
+  return [
+    { path: relativePath, kind: "directory", mode },
+    ...children.flatMap((child) =>
+      snapshotEntry(join(absolutePath, child), relativePath === "." ? child : join(relativePath, child)),
+    ),
+  ];
+}
+
+function formatResultFailure(
+  stage: string,
+  result: { readonly ok: boolean; readonly diagnostics?: readonly { readonly code: string }[] },
+): string {
+  return result.ok
+    ? ""
+    : `${stage} failed: ${result.diagnostics?.map((entry) => entry.code).join(", ") ?? "unknown"}`;
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function readKind(

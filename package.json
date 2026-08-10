@@ -9,6 +9,8 @@
     "build:core": "pnpm --filter @agent-plugins/core build",
     "build:cli": "pnpm --filter @agent-plugins/cli build",
     "build:testing": "pnpm --filter @agent-plugins/testing build",
+    "payloads:build": "pnpm -r --if-present run payload:build",
+    "payloads:verify": "pnpm -r --if-present run payload:verify",
     "typecheck": "pnpm -r --filter './packages/*' typecheck",
     "test": "pnpm -r --filter './packages/*' test"
   },

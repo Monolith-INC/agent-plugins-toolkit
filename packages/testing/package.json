@@ -18,6 +18,7 @@
     "test": "tsc -b tsconfig.json && node --test test/**/*.test.mjs"
   },
   "dependencies": {
+    "@agent-plugins/compiler": "workspace:*",
     "@agent-plugins/core": "workspace:*"
   }
 }

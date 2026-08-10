@@ -1,0 +1,16 @@
+{
+  "vendor": "claude",
+  "snapshot": "claude-code-plugins-2026-08-10",
+  "retrieved": "2026-08-10",
+  "sources": [
+    "https://code.claude.com/docs/en/plugins-reference",
+    "https://code.claude.com/docs/en/hooks"
+  ],
+  "manifest": ".claude-plugin/plugin.json",
+  "components": {
+    "skills": "skills/*/SKILL.md",
+    "rules": "unsupported by the Claude Code plugin schema",
+    "hooks": "hooks/hooks.json",
+    "mcp": ".mcp.json"
+  }
+}

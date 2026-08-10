@@ -1,0 +1,28 @@
+{
+  "adapter": {
+    "vendorSchemaVersion": "cursor-plugins-2026-08-10",
+    "version": "1.0.0"
+  },
+  "files": [
+    {
+      "bytes": 139,
+      "mode": 420,
+      "path": ".cursor-plugin/plugin.json",
+      "sha256": "ae55b839fd830c34a675e2ed7fb489b0c9051469e82905b0c7df14213a0f5673"
+    },
+    {
+      "bytes": 175,
+      "mode": 420,
+      "path": "skills/hello-world/SKILL.md",
+      "sha256": "91287a3b369889000c1bc0c76c4691fffe040724d2156b335e98b88f7fcba12b"
+    }
+  ],
+  "payloadDigest": "75649714dfda40f7c158d5712f19411a9bedfcaf72ee5c31f92a991521d2202e",
+  "plugin": {
+    "name": "hello-world",
+    "version": "1.0.0"
+  },
+  "schemaVersion": "1.0.0",
+  "sourceDigest": "240a86571dbb0dea32a00b28c5040a596dff4672b28984cd0686db31c1bac9fb",
+  "vendor": "cursor"
+}

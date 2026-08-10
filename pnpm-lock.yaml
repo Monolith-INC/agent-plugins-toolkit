@@ -15,7 +15,67 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  packages/adapter-claude:
+    dependencies:
+      '@agent-plugins/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      '@agent-plugins/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@agent-plugins/testing':
+        specifier: workspace:*
+        version: link:../testing
+
+  packages/adapter-codex:
+    dependencies:
+      '@agent-plugins/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      '@agent-plugins/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@agent-plugins/testing':
+        specifier: workspace:*
+        version: link:../testing
+
+  packages/adapter-cursor:
+    dependencies:
+      '@agent-plugins/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      '@agent-plugins/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@agent-plugins/testing':
+        specifier: workspace:*
+        version: link:../testing
+
   packages/cli:
+    dependencies:
+      '@agent-plugins/adapter-claude':
+        specifier: workspace:*
+        version: link:../adapter-claude
+      '@agent-plugins/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapter-codex
+      '@agent-plugins/adapter-cursor':
+        specifier: workspace:*
+        version: link:../adapter-cursor
+      '@agent-plugins/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      '@agent-plugins/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agent-plugins/installer':
+        specifier: workspace:*
+        version: link:../installer
+
+  packages/compiler:
     dependencies:
       '@agent-plugins/core':
         specifier: workspace:*
@@ -23,8 +83,20 @@ importers:
 
   packages/core: {}
 
+  packages/installer:
+    dependencies:
+      '@agent-plugins/compiler':
+        specifier: workspace:*
+        version: link:../compiler
+      '@agent-plugins/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/testing:
     dependencies:
+      '@agent-plugins/compiler':
+        specifier: workspace:*
+        version: link:../compiler
       '@agent-plugins/core':
         specifier: workspace:*
         version: link:../core
