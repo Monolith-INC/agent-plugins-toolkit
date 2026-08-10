@@ -1,0 +1,28 @@
+{
+  "adapter": {
+    "vendorSchemaVersion": "claude-code-plugins-2026-08-10",
+    "version": "1.0.0"
+  },
+  "files": [
+    {
+      "bytes": 141,
+      "mode": 420,
+      "path": ".claude-plugin/plugin.json",
+      "sha256": "0f43f792c7fd6115d274ee7b31af7465ec1bc42c36edee891ad1fa6ed32653e5"
+    },
+    {
+      "bytes": 175,
+      "mode": 420,
+      "path": "skills/hello-world/SKILL.md",
+      "sha256": "91287a3b369889000c1bc0c76c4691fffe040724d2156b335e98b88f7fcba12b"
+    }
+  ],
+  "payloadDigest": "8d4aae916cbc30a068b9618e159c3bf12c611dd313200057d662729f5d79deb4",
+  "plugin": {
+    "name": "hello-world",
+    "version": "1.0.0"
+  },
+  "schemaVersion": "1.0.0",
+  "sourceDigest": "240a86571dbb0dea32a00b28c5040a596dff4672b28984cd0686db31c1bac9fb",
+  "vendor": "claude"
+}

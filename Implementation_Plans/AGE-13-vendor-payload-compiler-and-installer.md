@@ -33,20 +33,21 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Normalize error-free portable inspection into a canonical plugin and source digest.
 - [x] Implement staged, verified, atomic compilation and prior-output preservation on failure.
 - [x] Implement isolated regenerate-and-diff verification and payload build/verify scripts.
-- [ ] Build, typecheck, and test affected packages; merge `feature/age-16-deterministic-compiler` into the Feature branch.
+- [x] Build, typecheck, and test affected packages; merge `feature/age-16-deterministic-compiler` into the Feature branch.
 
 ### AGE-17 — Cursor adapter
 
 - [x] Pin Cursor schema evidence and keep all Cursor names, paths, frontmatter, events, rendering, validation, and plan rules inside the adapter.
 - [x] Generate, validate, ship, and drift-protect the hello-world Cursor payload.
 - [x] Pass the shared conformance suite.
-- [ ] Merge `feature/age-17-cursor-adapter` into the Feature branch.
+- [x] Merge `feature/age-17-cursor-adapter` into the Feature branch.
 
 ### AGE-18 — Claude adapter
 
-- [ ] Pin Claude schema evidence and keep all Claude names, paths, events, rendering, validation, and plan rules inside the adapter.
-- [ ] Generate, validate, ship, and drift-protect the hello-world Claude payload.
-- [ ] Pass the shared conformance suite; merge `feature/age-18-claude-adapter` into the Feature branch.
+- [x] Pin Claude schema evidence and keep all Claude names, paths, events, rendering, validation, and plan rules inside the adapter.
+- [x] Generate, validate, ship, and drift-protect the hello-world Claude payload.
+- [x] Pass the shared conformance suite.
+- [ ] Merge `feature/age-18-claude-adapter` into the Feature branch.
 
 ### AGE-19 — Codex adapter
 
