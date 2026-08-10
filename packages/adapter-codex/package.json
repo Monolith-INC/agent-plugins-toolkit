@@ -1,0 +1,20 @@
+{
+  "name": "@agent-plugins/adapter-codex",
+  "version": "0.1.0",
+  "description": "Deterministic Codex payload adapter for Agent Plugins Toolkit.",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "payloads", "schema"],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "tsc -b tsconfig.json && node --test test/**/*.test.mjs",
+    "payload:build": "tsc -b tsconfig.json && node scripts/payload.mjs build",
+    "payload:verify": "tsc -b tsconfig.json && node scripts/payload.mjs verify"
+  },
+  "dependencies": {
+    "@agent-plugins/compiler": "workspace:*",
+    "@agent-plugins/core": "workspace:*"
+  },
+  "devDependencies": { "@agent-plugins/testing": "workspace:*" }
+}

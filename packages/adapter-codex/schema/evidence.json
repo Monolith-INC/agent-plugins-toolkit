@@ -1,0 +1,16 @@
+{
+  "vendor": "codex",
+  "snapshot": "codex-plugins-2026-08-10",
+  "retrieved": "2026-08-10",
+  "sources": [
+    "https://developers.openai.com/plugins/build/plugins",
+    "https://learn.chatgpt.com/docs/hooks"
+  ],
+  "manifest": ".codex-plugin/plugin.json",
+  "components": {
+    "skills": "skills/*/SKILL.md",
+    "rules": "unsupported by the Codex plugin package schema",
+    "hooks": "hooks/hooks.json",
+    "mcp": ".mcp.json"
+  }
+}
