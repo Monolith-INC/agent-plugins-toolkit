@@ -83,7 +83,7 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Document only canonical source to compiler to shipped adapter payload to transactional install.
 - [x] Publish authoring, adapter conformance, compatibility, rollback/recovery, and one-command installation guidance.
 - [x] Update README, changelog, release notes, versions, payload digests, milestone/spec/ticket links, and command verification.
-- [x] Run the full milestone acceptance audit for `feature/age-23-docs-release`; Story-to-Feature PR/merge follows this commit.
+- [x] Run the full milestone acceptance audit; merge PR #29 from `feature/age-23-docs-release` into the Feature branch.
 
 ## Feature completion gates
 
@@ -94,5 +94,11 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Three-vendor isolated install, unchanged reinstall, upgrade, failed-upgrade rollback, and unrelated-file preservation evidence
 - [x] Generated payload diff is empty and every adapter passes the same contract suite
 - [x] Documentation commands and JSON examples match runtime output
-- [ ] AGE-14 through AGE-23 are complete and merged into the Feature branch
-- [ ] Invoke finish-feature-development for the Feature-to-`main` closeout
+- [x] AGE-14 through AGE-23 are complete and merged into the Feature branch
+- [x] Invoke finish-feature-development for the Feature-to-`main` closeout
+
+## Feature closeout
+
+- [x] Open Feature PR #30 from `feature/age-13-vendor-payload-compiler-installer` to `main`: https://github.com/Monolith-INC/agent-plugins-toolkit/pull/30
+- [x] Merge Feature PR #30 into `main` with merge commit `a44df547761be3739fee480b5948a850e6230eec`.
+- [x] Final Feature verification passed before PR #30: `git diff --check && corepack pnpm build && corepack pnpm typecheck && corepack pnpm test && corepack pnpm payloads:verify`.
