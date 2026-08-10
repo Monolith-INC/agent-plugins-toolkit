@@ -617,6 +617,28 @@ export function compilePlugin(
 ): CompileResult {
   const vendor = parseVendorId(input.vendor);
   if (!vendor.ok) return { ok: false, diagnostics: vendor.diagnostics };
+  return compileVendorPayload(input, getVendorAdapter(registry, vendor.value), hooks);
+}
+
+export function compileVendorPayload(
+  input: CompilePluginInput,
+  adapter: VendorAdapter,
+  hooks: CompilerTestHooks = {},
+): CompileResult {
+  const vendor = parseVendorId(input.vendor);
+  if (!vendor.ok) return { ok: false, diagnostics: vendor.diagnostics };
+  if (vendor.value !== adapter.vendor) {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          compilerDiagnosticCodes.adapterInvalid,
+          "Explicit compiler vendor must match the selected adapter.",
+          vendor.value,
+        ),
+      ],
+    };
+  }
 
   const source = resolve(input.source);
   const output = resolve(input.output);
@@ -635,7 +657,6 @@ export function compilePlugin(
 
   const canonical = normalizeCanonicalPlugin(source);
   if (!canonical.ok) return { ok: false, diagnostics: canonical.diagnostics };
-  const adapter = getVendorAdapter(registry, vendor.value);
 
   try {
     const compiled = adapter.compile(canonical.value);
@@ -675,6 +696,16 @@ export function verifyShippedPayload(
   registry: VendorAdapterRegistry,
   hooks: CompilerTestHooks = {},
 ): VerificationResult {
+  const vendor = parseVendorId(input.vendor);
+  if (!vendor.ok) return { ok: false, diagnostics: vendor.diagnostics };
+  return verifyVendorPayload(input, getVendorAdapter(registry, vendor.value), hooks);
+}
+
+export function verifyVendorPayload(
+  input: VerifyShippedPayloadInput,
+  adapter: VendorAdapter,
+  hooks: CompilerTestHooks = {},
+): VerificationResult {
   let temporaryRoot: string;
   try {
     temporaryRoot = mkdtempSync(join(tmpdir(), "agent-plugin-verify-"));
@@ -691,9 +722,9 @@ export function verifyShippedPayload(
   }
   const generatedRoot = join(temporaryRoot, "generated");
   try {
-    const compiled = compilePlugin(
+    const compiled = compileVendorPayload(
       { source: input.source, vendor: input.vendor, output: generatedRoot },
-      registry,
+      adapter,
       hooks,
     );
     if (!compiled.ok) return compiled;
