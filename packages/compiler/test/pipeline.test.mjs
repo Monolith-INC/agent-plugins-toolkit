@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -192,7 +193,7 @@ test("compilation is deterministic, verified, and atomically restores prior outp
   assert.deepEqual(snapshot(output), firstSnapshot);
 });
 
-test("verification regenerates in isolation and detects shipped drift without modifying it", () => {
+test("verification regenerates in isolation and detects missing, extra, changed, and mode drift", () => {
   const source = mkdtempSync(join(tmpdir(), "agent-verify-source-"));
   const shipped = join(mkdtempSync(join(tmpdir(), "agent-verify-output-")), "codex");
   writeCanonicalPlugin(source);
@@ -203,9 +204,20 @@ test("verification regenerates in isolation and detects shipped drift without mo
   assert.deepEqual(snapshot(shipped), before);
 
   const payload = join(shipped, "payload", ".fixture-codex", "plugin.json");
+  rmSync(payload);
+  assert.equal(compiler.verifyShippedPayload({ source, vendor: "codex", shipped }).ok, false);
+  assert.equal(compiler.compilePlugin({ source, vendor: "codex", output: shipped }).ok, true);
+
+  const extra = join(shipped, "payload", "extra.txt");
+  writeFileSync(extra, "extra\n");
+  assert.equal(compiler.verifyShippedPayload({ source, vendor: "codex", shipped }).ok, false);
+  rmSync(extra);
+
   writeFileSync(payload, "modified\n");
   const drift = compiler.verifyShippedPayload({ source, vendor: "codex", shipped });
   assert.equal(drift.ok, false);
+  assert.equal(compiler.compilePlugin({ source, vendor: "codex", output: shipped }).ok, true);
+
   chmodSync(payload, 0o755);
   assert.equal(compiler.verifyShippedPayload({ source, vendor: "codex", shipped }).ok, false);
 });
