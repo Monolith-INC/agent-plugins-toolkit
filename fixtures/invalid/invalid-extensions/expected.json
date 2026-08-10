@@ -1,0 +1,10 @@
+{
+  "id": "invalid-extensions",
+  "kind": "invalid",
+  "description": "Non-object extensions emits diagnostic; identity fields remain.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.extensions.invalid_type"
+  ],
+  "requireManifest": true
+}

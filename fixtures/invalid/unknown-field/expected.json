@@ -1,0 +1,10 @@
+{
+  "id": "unknown-field",
+  "kind": "invalid",
+  "description": "Unknown portable field rejected.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.unknown_field"
+  ],
+  "requireManifest": false
+}

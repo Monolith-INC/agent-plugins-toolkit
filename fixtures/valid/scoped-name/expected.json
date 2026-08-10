@@ -1,0 +1,8 @@
+{
+  "id": "scoped-name",
+  "kind": "valid",
+  "description": "Scoped npm-style plugin name is accepted.",
+  "validateExitCode": 0,
+  "diagnosticCodes": [],
+  "requireManifest": true
+}

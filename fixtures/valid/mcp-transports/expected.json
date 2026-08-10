@@ -1,0 +1,9 @@
+{
+  "id": "mcp-transports",
+  "kind": "valid",
+  "description": "stdio, streamable-http, and SSE transports with placeholder tokens as data.",
+  "validateExitCode": 0,
+  "diagnosticCodes": [],
+  "requireManifest": true,
+  "skillPaths": []
+}

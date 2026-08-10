@@ -1,0 +1,8 @@
+{
+  "id": "schema-version",
+  "kind": "valid",
+  "description": "Explicit schemaVersion 1.0.0 is accepted.",
+  "validateExitCode": 0,
+  "diagnosticCodes": [],
+  "requireManifest": true
+}
