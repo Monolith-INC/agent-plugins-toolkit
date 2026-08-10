@@ -22,13 +22,29 @@ import {
   sha256,
 } from "@agent-plugins/compiler";
 import { createVendorInstaller, installVendorBundle } from "@agent-plugins/installer";
+import { runInstallCommand } from "../dist/index.js";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const helloWorldRoot = join(repositoryRoot, "plugins", "hello-world");
 const vendors = [
-  { adapter: claudeAdapter, shipped: CLAUDE_SHIPPED_HELLO_WORLD },
-  { adapter: codexAdapter, shipped: CODEX_SHIPPED_HELLO_WORLD },
-  { adapter: cursorAdapter, shipped: CURSOR_SHIPPED_HELLO_WORLD },
+  {
+    adapter: claudeAdapter,
+    manifestPath: ".claude-plugin/plugin.json",
+    packageRoot: "packages/adapter-claude",
+    shipped: CLAUDE_SHIPPED_HELLO_WORLD,
+  },
+  {
+    adapter: codexAdapter,
+    manifestPath: ".codex-plugin/plugin.json",
+    packageRoot: "packages/adapter-codex",
+    shipped: CODEX_SHIPPED_HELLO_WORLD,
+  },
+  {
+    adapter: cursorAdapter,
+    manifestPath: ".cursor-plugin/plugin.json",
+    packageRoot: "packages/adapter-cursor",
+    shipped: CURSOR_SHIPPED_HELLO_WORLD,
+  },
 ];
 
 function snapshot(root, prefix = "") {
@@ -52,6 +68,34 @@ function compiledBundle(adapter, canonical, version) {
   const bundle = finalizeVendorBundle(draft.value);
   assert.equal(bundle.ok, true);
   return bundle.value;
+}
+
+function capture(operation) {
+  const stdout = [];
+  const stderr = [];
+  const priorLog = console.log;
+  const priorError = console.error;
+  console.log = (value) => stdout.push(String(value));
+  console.error = (value) => stderr.push(String(value));
+  try { return { code: operation(), stdout: stdout.join("\n"), stderr: stderr.join("\n") }; }
+  finally { console.log = priorLog; console.error = priorError; }
+}
+
+function markdownFiles(root) {
+  return readdirSync(root).sort().flatMap((name) => {
+    const absolute = join(root, name);
+    const stat = lstatSync(absolute);
+    if (stat.isDirectory()) return markdownFiles(absolute);
+    return name.endsWith(".md") ? [absolute] : [];
+  });
+}
+
+function relativeRepositoryPath(path) {
+  return path.slice(repositoryRoot.length + 1);
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
 }
 
 test("every vendor supports install, unchanged reinstall, upgrade, compatible older install, rejected incompatible downgrade, and failed-upgrade rollback", () => {
@@ -115,4 +159,71 @@ test("the installation path has no compilation, execution, elevation, or network
     /\b(?:sudo|doas)\b/u,
   ];
   for (const pattern of forbidden) assert.doesNotMatch(sources, pattern);
+});
+
+test("release documentation is backed by shipped payloads and exercised install commands", () => {
+  const documentedFiles = [
+    join(repositoryRoot, "README.md"),
+    join(repositoryRoot, "CHANGELOG.md"),
+    ...markdownFiles(join(repositoryRoot, "docs")),
+  ];
+  const documentation = documentedFiles.map((path) => readFileSync(path, "utf8")).join("\n");
+  const forbiddenDocumentationModels = [
+    /\bwire\b/iu,
+    /post-install generation/iu,
+    /dynamic artifact service/iu,
+    /alternate install path/iu,
+  ];
+  for (const pattern of forbiddenDocumentationModels) assert.doesNotMatch(documentation, pattern);
+
+  const commandPattern = /pnpm --filter @agent-plugins\/cli exec agent-plugin install (?<plugin>plugins\/hello-world) --vendor (?<vendor>claude|cursor|codex) --target <target-directory>/gu;
+  const commands = [...documentation.matchAll(commandPattern)].map((match) => match.groups);
+  assert.deepEqual(new Set(commands.map((command) => command.vendor)), new Set(["claude", "codex", "cursor"]));
+
+  for (const command of commands) {
+    const target = mkdtempSync(join(tmpdir(), `docs-${command.vendor}-`));
+    const result = capture(() => runInstallCommand([
+      join(repositoryRoot, command.plugin),
+      "--vendor",
+      command.vendor,
+      "--target",
+      target,
+    ]));
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).vendor, command.vendor);
+  }
+
+  for (const { adapter, manifestPath, packageRoot, shipped } of vendors) {
+    const bundlePath = join(fileURLToPath(shipped), "bundle.json");
+    const bundle = readJson(bundlePath);
+    const documentedPath = relativeRepositoryPath(bundlePath);
+    assert.match(documentation, new RegExp(documentedPath.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+    assert.match(documentation, new RegExp(bundle.payloadDigest, "u"));
+    assert.match(documentation, new RegExp(bundle.adapter.vendorSchemaVersion, "u"));
+
+    const packageManifest = readJson(join(repositoryRoot, packageRoot, "package.json"));
+    assert.ok(packageManifest.files.includes("payloads"), `${adapter.vendor} package publishes payloads`);
+    assert.ok(packageManifest.files.includes("schema"), `${adapter.vendor} package publishes schema evidence`);
+
+    const vendorManifest = readJson(join(fileURLToPath(shipped), "payload", manifestPath));
+    assert.equal(vendorManifest.sourceDigest, undefined);
+    assert.equal(vendorManifest.payloadDigest, undefined);
+    assert.equal(vendorManifest.adapter, undefined);
+  }
+
+  for (const path of [
+    "AI_Codex/Features/age-13-vendor-payload-compiler-and-installer.md",
+    "AI_Codex/Specs/age-13/design-doc.md",
+    "AI_Codex/Specs/age-13/tech-spec.md",
+    "AI_Codex/Specs/age-13/api-contract.md",
+    "AI_Codex/Specs/age-13/implementation-plan.md",
+  ]) {
+    assert.ok(existsSync(join(repositoryRoot, path)), path);
+    assert.match(documentation, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  }
+
+  for (const issue of ["AGE-13", "AGE-14", "AGE-15", "AGE-16", "AGE-17", "AGE-18", "AGE-19", "AGE-20", "AGE-21", "AGE-22", "AGE-23"]) {
+    assert.match(documentation, new RegExp(`linear\\.app/agentical-monolithics/issue/${issue}`, "u"));
+  }
+  assert.match(documentation, /milestone-2087dd3f-72b8-433c-a2dc-144591aa64be/u);
 });

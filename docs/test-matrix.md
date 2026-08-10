@@ -12,6 +12,10 @@ This matrix documents AGE-27 coverage for the portable toolkit. All cases run in
 | Filesystem containment | in-root links (when AGE-26 present) | escaping symlinks never imported as skills | `security.test.mjs`, `containment.test.mjs` (AGE-26) |
 | Non-execution | inspect/validate metadata only | source scans forbid `child_process` / `fetch` / spawn | `security.test.mjs` (core + CLI) |
 | CLI | validate/inspect exit codes | invalid fixtures → stderr diagnostics JSON | `m1-integration.test.mjs`, `security.test.mjs` |
+| Vendor payload compiler | canonical source to finalized bundle | missing, extra, changed, and mode-drifted payload output | `packages/compiler/test/pipeline.test.mjs` |
+| Adapters | Claude, Cursor, and Codex shared conformance | schema identity mismatch and invalid vendor paths | `packages/*/test/*.test.mjs`, `packages/testing/test/adapter-conformance.test.mjs` |
+| Transactional installer | install, unchanged reinstall, upgrade, stale owned-file cleanup | collision, lock, symlink, permission, poisoned bundle, mutation faults, exact rollback | `packages/installer/test/installer.test.mjs`, `packages/cli/test/release-evidence.test.mjs` |
+| Release documentation | install commands, paths, digests, package contents, provenance placement | unsupported installation models in docs | `packages/cli/test/release-evidence.test.mjs` |
 
 ## Security boundary
 

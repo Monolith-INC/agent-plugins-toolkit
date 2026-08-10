@@ -25,10 +25,10 @@ node packages/cli/dist/index.js inspect plugins/translation
 - No vendor payload compilation (Claude/Cursor/Codex adapters) — that is M4.
 - No `agent-plugin install` / transactional installation.
 - No runtime MCP server process, glossary service, or network calls during validate/inspect.
-- No host-specific hooks, rules, or wire/activation steps.
+- No host-specific hooks, rules, or activation steps.
 
 ## Follow-ups discovered while dogfooding
 
-- Wire AGE-24 authoring CLI (`create` / `add skill`) into contributor docs once merged, so the plugin can be reproduced from scaffolding commands rather than hand-authored files.
+- Add AGE-24 authoring CLI (`create` / `add skill`) to contributor docs once merged, so the plugin can be reproduced from scaffolding commands rather than hand-authored files.
 - After AGE-26 merges, add an explicit escaping-symlink fixture next to the translation plugin samples.
 - Keep `com.acme.translation` documentation synchronized if extension fields grow beyond opaque metadata.
