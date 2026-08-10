@@ -1,10 +1,33 @@
 import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 
-import type {
-  Diagnostic,
-  PluginManifest,
-  PluginMcpServer,
+import {
+  isPathInside,
+  loadPluginRoot,
+  resolveContained,
+  type Diagnostic,
+  type PluginInspection,
+  type PluginManifest,
+  type PluginMcpServer,
 } from "@agent-plugins/core";
+
+/*
+ * Compiler and adapter contracts intentionally live outside portable core. The
+ * filesystem imports above are used only by the release-time compiler effect
+ * boundary; adapter contract operations remain pure values.
+ */
 
 export const BUNDLE_SCHEMA_VERSION = "1.0.0" as const;
 export const CANONICAL_SCHEMA_VERSION = "1.0.0" as const;
@@ -236,11 +259,42 @@ export type VerificationResult =
     }
   | { readonly ok: false; readonly diagnostics: readonly Diagnostic[] };
 
+export interface CompilePluginInput {
+  readonly source: string;
+  readonly vendor: VendorId;
+  readonly output: string;
+}
+
+export interface VerifyShippedPayloadInput {
+  readonly source: string;
+  readonly vendor: VendorId;
+  readonly shipped: string;
+}
+
+export interface VendorCompiler {
+  readonly compilePlugin: (input: CompilePluginInput) => CompileResult;
+  readonly verifyShippedPayload: (
+    input: VerifyShippedPayloadInput,
+  ) => VerificationResult;
+}
+
+export interface CompilerTestHooks {
+  readonly afterStaging?: () => void;
+  readonly afterPriorBackup?: () => void;
+}
+
+export const BUNDLE_MANIFEST_FILE = "bundle.json" as const;
+export const BUNDLE_PAYLOAD_DIRECTORY = "payload" as const;
+export const CANONICAL_DISTRIBUTION_EXTENSION = "org.agent-plugins.distribution" as const;
+
 export const compilerDiagnosticCodes = Object.freeze({
   vendorUnsupported: "adapter.vendor.unsupported",
   adapterInvalid: "adapter.contract.invalid",
   adapterMissing: "adapter.registry.missing",
   adapterDuplicate: "adapter.registry.duplicate",
+  canonicalInvalid: "canonical.source.invalid",
+  canonicalReadFailed: "canonical.source.read_failed",
+  canonicalDistributionInvalid: "canonical.distribution.invalid",
   sha256Invalid: "bundle.sha256.invalid",
   pathInvalid: "bundle.path.invalid",
   fileModeInvalid: "bundle.file.mode.invalid",
@@ -251,6 +305,8 @@ export const compilerDiagnosticCodes = Object.freeze({
   payloadDigestMismatch: "bundle.payload.digest_mismatch",
   manifestInvalid: "bundle.manifest.invalid",
   manifestUnknownField: "bundle.manifest.unknown_field",
+  bundleUnreadable: "bundle.unreadable",
+  bundleEntryInvalid: "bundle.entry.invalid",
   identityInvalid: "bundle.identity.invalid",
   adapterVersionInvalid: "adapter.version.invalid",
   planInvalid: "install.preflight.plan.invalid",
@@ -258,6 +314,14 @@ export const compilerDiagnosticCodes = Object.freeze({
   planSourceDuplicate: "install.preflight.plan.source_duplicate",
   planDestinationDuplicate: "install.preflight.plan.destination_duplicate",
   planOrderInvalid: "install.preflight.plan.order_invalid",
+  compilerOutputInvalid: "compiler.output.invalid",
+  compilerStageFailed: "compiler.stage.failed",
+  compilerReplaceFailed: "compiler.replace.failed",
+  compilerRestoreFailed: "compiler.restore.failed",
+  driftManifest: "bundle.drift.manifest",
+  driftPath: "bundle.drift.path",
+  driftContent: "bundle.drift.content",
+  driftMode: "bundle.drift.mode",
 } as const);
 
 export const PORTABLE_FILE_MODES = Object.freeze({
@@ -535,6 +599,228 @@ export function listVendorAdapters(): readonly VendorId[] {
   return VENDOR_IDS;
 }
 
+export function createVendorCompiler(
+  registry: VendorAdapterRegistry,
+  hooks: CompilerTestHooks = {},
+): VendorCompiler {
+  return Object.freeze({
+    compilePlugin: (input: CompilePluginInput) => compilePlugin(input, registry, hooks),
+    verifyShippedPayload: (input: VerifyShippedPayloadInput) =>
+      verifyShippedPayload(input, registry, hooks),
+  });
+}
+
+export function compilePlugin(
+  input: CompilePluginInput,
+  registry: VendorAdapterRegistry,
+  hooks: CompilerTestHooks = {},
+): CompileResult {
+  const vendor = parseVendorId(input.vendor);
+  if (!vendor.ok) return { ok: false, diagnostics: vendor.diagnostics };
+
+  const source = resolve(input.source);
+  const output = resolve(input.output);
+  if (isPathInside(source, output) || isPathInside(output, source)) {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          compilerDiagnosticCodes.compilerOutputInvalid,
+          "Compiler source and output directories must not overlap.",
+          output,
+        ),
+      ],
+    };
+  }
+
+  const canonical = normalizeCanonicalPlugin(source);
+  if (!canonical.ok) return { ok: false, diagnostics: canonical.diagnostics };
+  const adapter = getVendorAdapter(registry, vendor.value);
+
+  try {
+    const compiled = adapter.compile(canonical.value);
+    if (!compiled.ok) return { ok: false, diagnostics: compiled.diagnostics };
+    const identityDiagnostics = validateAdapterDraft(adapter, canonical.value, compiled.value);
+    if (identityDiagnostics.length > 0) {
+      return { ok: false, diagnostics: identityDiagnostics };
+    }
+
+    const finalized = finalizeVendorBundle(compiled.value);
+    if (!finalized.ok) return { ok: false, diagnostics: finalized.diagnostics };
+    const adapterDiagnostics = adapter.validate(finalized.value);
+    if (adapterDiagnostics.length > 0) {
+      return { ok: false, diagnostics: adapterDiagnostics };
+    }
+
+    const materialized = materializeVendorBundle(finalized.value, output, hooks);
+    return materialized.ok
+      ? { ok: true, bundle: finalized.value.manifest, output: materialized.value }
+      : { ok: false, diagnostics: materialized.diagnostics };
+  } catch {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          compilerDiagnosticCodes.adapterInvalid,
+          "Adapter compilation failed unexpectedly at the release compiler boundary.",
+          vendor.value,
+        ),
+      ],
+    };
+  }
+}
+
+export function verifyShippedPayload(
+  input: VerifyShippedPayloadInput,
+  registry: VendorAdapterRegistry,
+  hooks: CompilerTestHooks = {},
+): VerificationResult {
+  let temporaryRoot: string;
+  try {
+    temporaryRoot = mkdtempSync(join(tmpdir(), "agent-plugin-verify-"));
+  } catch {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          compilerDiagnosticCodes.compilerStageFailed,
+          "Isolated payload verification workspace could not be created.",
+        ),
+      ],
+    };
+  }
+  const generatedRoot = join(temporaryRoot, "generated");
+  try {
+    const compiled = compilePlugin(
+      { source: input.source, vendor: input.vendor, output: generatedRoot },
+      registry,
+      hooks,
+    );
+    if (!compiled.ok) return compiled;
+
+    const generated = readVendorBundle(generatedRoot);
+    if (!generated.ok) return { ok: false, diagnostics: generated.diagnostics };
+    const shipped = readVendorBundle(input.shipped);
+    if (!shipped.ok) return { ok: false, diagnostics: shipped.diagnostics };
+    const drift = compareVendorBundles(generated.value, shipped.value);
+    return drift.length === 0
+      ? {
+          ok: true,
+          sourceDigest: generated.value.manifest.sourceDigest,
+          payloadDigest: generated.value.manifest.payloadDigest,
+        }
+      : { ok: false, diagnostics: drift };
+  } finally {
+    removeGeneratedPath(temporaryRoot);
+  }
+}
+
+export function normalizeCanonicalPlugin(source: string): Result<CanonicalPlugin> {
+  const root = resolve(source);
+  let inspection: PluginInspection;
+  try {
+    inspection = loadPluginRoot(root);
+  } catch {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.canonicalReadFailed,
+        "Canonical plugin source could not be inspected.",
+        root,
+      ),
+    );
+  }
+
+  const errors = inspection.diagnostics.filter((entry) => entry.severity === "error");
+  if (errors.length > 0) return failure(errors[0] as Diagnostic, ...errors.slice(1));
+  if (inspection.manifest === undefined) {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.canonicalInvalid,
+        "Canonical plugin inspection did not produce a manifest.",
+        "plugin.json",
+      ),
+    );
+  }
+
+  const skills = readCanonicalSkills(root, inspection);
+  if (!skills.ok) return skills;
+  const distribution = parseCanonicalDistribution(inspection.manifest);
+  if (!distribution.ok) return distribution;
+  const mcpServers = [...(inspection.mcpServers ?? [])].sort(compareMcpServers);
+  const withoutDigest = {
+    manifest: inspection.manifest,
+    skills: skills.value,
+    mcpServers,
+    rules: distribution.value.rules,
+    hookIntents: distribution.value.hookIntents,
+    distribution: distribution.value.distribution,
+  };
+  const sourceJson = toJsonValue(withoutDigest);
+  if (!sourceJson.ok) return sourceJson;
+
+  return success({
+    root,
+    ...withoutDigest,
+    sourceDigest: sha256(stableJson(sourceJson.value)),
+  });
+}
+
+export function readVendorBundle(bundleRoot: string): Result<VendorBundle> {
+  const root = resolve(bundleRoot);
+  try {
+    const rootStat = lstatSync(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.bundleUnreadable,
+          "Vendor bundle root must be a real directory.",
+          root,
+        ),
+      );
+    }
+    const entries = readdirSync(root).sort(compareStrings);
+    if (entries.length !== 2 || entries[0] !== BUNDLE_MANIFEST_FILE || entries[1] !== BUNDLE_PAYLOAD_DIRECTORY) {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.bundleEntryInvalid,
+          "Vendor bundle root must contain exactly bundle.json and payload/.",
+          root,
+        ),
+      );
+    }
+
+    const manifestPath = join(root, BUNDLE_MANIFEST_FILE);
+    const manifestStat = lstatSync(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.bundleEntryInvalid,
+          "Bundle manifest must be a regular file.",
+          BUNDLE_MANIFEST_FILE,
+        ),
+      );
+    }
+    const manifestJson = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+    const manifest = parseVendorBundleManifest(manifestJson);
+    if (!manifest.ok) return manifest;
+    const files = readPayloadTree(join(root, BUNDLE_PAYLOAD_DIRECTORY));
+    if (!files.ok) return files;
+    const bundle = { manifest: manifest.value, files: files.value };
+    const diagnostics = validateVendorBundle(bundle);
+    return diagnostics.length === 0
+      ? success(bundle)
+      : failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  } catch {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.bundleUnreadable,
+        "Vendor bundle could not be read as a closed generated artifact.",
+        root,
+      ),
+    );
+  }
+}
+
 export function validateVendorBundle(bundle: VendorBundle): readonly Diagnostic[] {
   const identityDiagnostics = validateBundleIdentity(bundle.manifest);
   const manifestFiles = bundle.manifest.files;
@@ -706,6 +992,574 @@ export function parseVendorBundleManifest(value: unknown): Result<VendorBundleMa
     payloadDigest: payloadDigest.value,
     files: files.value,
   });
+}
+
+interface ParsedCanonicalDistribution {
+  readonly rules: readonly CanonicalRule[];
+  readonly hookIntents: readonly CanonicalHookIntent[];
+  readonly distribution: CanonicalDistribution;
+}
+
+function readCanonicalSkills(
+  root: string,
+  inspection: PluginInspection,
+): Result<readonly CanonicalSkill[]> {
+  const results = (inspection.skills ?? []).map((skill) => {
+    const contained = resolveContained(root, skill.path);
+    if (!contained.ok) return failure(contained.diagnostic);
+    try {
+      const content = new TextDecoder("utf-8", { fatal: true }).decode(
+        readFileSync(contained.path),
+      );
+      return success({
+        name: skill.name ?? basename(dirname(skill.path)),
+        path: skill.path,
+        ...(skill.description === undefined ? {} : { description: skill.description }),
+        content: canonicalMarkdown(content),
+      });
+    } catch {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.canonicalReadFailed,
+          "Canonical Skill content must be readable UTF-8 text.",
+          skill.path,
+        ),
+      );
+    }
+  });
+  const diagnostics = results.flatMap((result) => result.ok ? [] : result.diagnostics);
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  const skills = results.flatMap((result) => result.ok ? [result.value] : [])
+    .sort((left, right) => compareStrings(left.path, right.path));
+  const duplicate = duplicateDiagnostics(
+    skills.map((skill) => skill.path),
+    compilerDiagnosticCodes.canonicalInvalid,
+    "Canonical Skill paths must be unique.",
+  );
+  return duplicate.length === 0
+    ? success(Object.freeze(skills))
+    : failure(duplicate[0] as Diagnostic, ...duplicate.slice(1));
+}
+
+function parseCanonicalDistribution(
+  manifest: PluginManifest,
+): Result<ParsedCanonicalDistribution> {
+  const extension = manifest.extensions?.[CANONICAL_DISTRIBUTION_EXTENSION];
+  if (extension === undefined) {
+    return success({
+      rules: Object.freeze([]),
+      hookIntents: Object.freeze([]),
+      distribution: {
+        schemaVersion: CANONICAL_SCHEMA_VERSION,
+        compatibility: {
+          bundleSchemaMajor: 1,
+          allowDowngradeWithinMajor: false,
+        },
+      },
+    });
+  }
+  if (!isRecord(extension)) return invalidCanonicalDistribution(CANONICAL_DISTRIBUTION_EXTENSION);
+  const unknown = canonicalUnknownFields(extension, ["rules", "hookIntents", "compatibility"]);
+  const rules = parseCanonicalRules(extension["rules"]);
+  const hooks = parseCanonicalHookIntents(extension["hookIntents"]);
+  const compatibility = parseCanonicalCompatibility(extension["compatibility"]);
+  const diagnostics = [
+    ...unknown,
+    ...(rules.ok ? [] : rules.diagnostics),
+    ...(hooks.ok ? [] : hooks.diagnostics),
+    ...(compatibility.ok ? [] : compatibility.diagnostics),
+  ];
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  if (!rules.ok || !hooks.ok || !compatibility.ok) {
+    return invalidCanonicalDistribution(CANONICAL_DISTRIBUTION_EXTENSION);
+  }
+  return success({
+    rules: rules.value,
+    hookIntents: hooks.value,
+    distribution: {
+      schemaVersion: CANONICAL_SCHEMA_VERSION,
+      compatibility: {
+        bundleSchemaMajor: 1,
+        allowDowngradeWithinMajor: compatibility.value,
+      },
+    },
+  });
+}
+
+function parseCanonicalRules(value: unknown): Result<readonly CanonicalRule[]> {
+  if (value === undefined) return success(Object.freeze([]));
+  if (!Array.isArray(value)) return invalidCanonicalDistribution("rules");
+  const results = value.map((entry, index) => parseCanonicalRule(entry, index));
+  const diagnostics = results.flatMap((result) => result.ok ? [] : result.diagnostics);
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  const rules = results.flatMap((result) => result.ok ? [result.value] : [])
+    .sort((left, right) => compareStrings(left.id, right.id));
+  const duplicates = duplicateDiagnostics(
+    rules.map((rule) => rule.id),
+    compilerDiagnosticCodes.canonicalDistributionInvalid,
+    "Canonical rule identifiers must be unique.",
+  );
+  return duplicates.length === 0
+    ? success(Object.freeze(rules))
+    : failure(duplicates[0] as Diagnostic, ...duplicates.slice(1));
+}
+
+function parseCanonicalRule(value: unknown, index: number): Result<CanonicalRule> {
+  const path = `rules[${index}]`;
+  if (!isRecord(value)) return invalidCanonicalDistribution(path);
+  const unknown = canonicalUnknownFields(value, ["id", "description", "activation", "fileGlobs", "content"], path);
+  const id = value["id"];
+  const description = value["description"];
+  const activation = value["activation"];
+  const fileGlobs = value["fileGlobs"];
+  const content = value["content"];
+  const valid = typeof id === "string" && id.length > 0 &&
+    (description === undefined || typeof description === "string") &&
+    (activation === "always" || activation === "model-decides") &&
+    Array.isArray(fileGlobs) && fileGlobs.every((entry) => typeof entry === "string") &&
+    typeof content === "string";
+  if (!valid || unknown.length > 0) {
+    const diagnostics = [
+      ...unknown,
+      ...(valid ? [] : [canonicalDistributionDiagnostic("Canonical rule declaration is invalid.", path)]),
+    ];
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  return success({
+    id,
+    ...(description === undefined ? {} : { description: description as string }),
+    activation,
+    fileGlobs: Object.freeze([...(fileGlobs as readonly string[])].sort(compareStrings)),
+    content: canonicalMarkdown(content),
+  });
+}
+
+function parseCanonicalHookIntents(
+  value: unknown,
+): Result<readonly CanonicalHookIntent[]> {
+  if (value === undefined) return success(Object.freeze([]));
+  if (!Array.isArray(value)) return invalidCanonicalDistribution("hookIntents");
+  const results = value.map((entry, index) => parseCanonicalHookIntent(entry, index));
+  const diagnostics = results.flatMap((result) => result.ok ? [] : result.diagnostics);
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  const hooks = results.flatMap((result) => result.ok ? [result.value] : [])
+    .sort((left, right) => compareStrings(left.id, right.id));
+  const duplicates = duplicateDiagnostics(
+    hooks.map((hook) => hook.id),
+    compilerDiagnosticCodes.canonicalDistributionInvalid,
+    "Canonical hook intent identifiers must be unique.",
+  );
+  return duplicates.length === 0
+    ? success(Object.freeze(hooks))
+    : failure(duplicates[0] as Diagnostic, ...duplicates.slice(1));
+}
+
+function parseCanonicalHookIntent(
+  value: unknown,
+  index: number,
+): Result<CanonicalHookIntent> {
+  const path = `hookIntents[${index}]`;
+  if (!isRecord(value)) return invalidCanonicalDistribution(path);
+  const unknown = canonicalUnknownFields(
+    value,
+    ["id", "lifecycle", "toolKinds", "executable", "arguments", "timeoutSeconds"],
+    path,
+  );
+  const id = value["id"];
+  const lifecycle = value["lifecycle"];
+  const toolKinds = value["toolKinds"];
+  const executable = value["executable"];
+  const args = value["arguments"];
+  const timeout = value["timeoutSeconds"];
+  const valid = typeof id === "string" && id.length > 0 &&
+    isCanonicalHookLifecycle(lifecycle) &&
+    Array.isArray(toolKinds) && toolKinds.every(isCanonicalToolKind) &&
+    typeof executable === "string" && executable.length > 0 &&
+    Array.isArray(args) && args.every((entry) => typeof entry === "string") &&
+    (timeout === undefined || (Number.isSafeInteger(timeout) && typeof timeout === "number" && timeout > 0));
+  if (!valid || unknown.length > 0) {
+    const diagnostics = [
+      ...unknown,
+      ...(valid ? [] : [canonicalDistributionDiagnostic("Canonical hook intent declaration is invalid.", path)]),
+    ];
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  return success({
+    id,
+    lifecycle,
+    toolKinds: Object.freeze([...(toolKinds as readonly CanonicalToolKind[])].sort(compareStrings)),
+    executable,
+    arguments: Object.freeze([...(args as readonly string[])]),
+    ...(timeout === undefined ? {} : { timeoutSeconds: timeout as number }),
+  });
+}
+
+function parseCanonicalCompatibility(value: unknown): Result<boolean> {
+  if (value === undefined) return success(false);
+  if (!isRecord(value)) return invalidCanonicalDistribution("compatibility");
+  const unknown = canonicalUnknownFields(value, ["allowDowngradeWithinMajor"], "compatibility");
+  const allow = value["allowDowngradeWithinMajor"];
+  if (unknown.length > 0 || (allow !== undefined && typeof allow !== "boolean")) {
+    const diagnostics = [
+      ...unknown,
+      ...(allow === undefined || typeof allow === "boolean"
+        ? []
+        : [canonicalDistributionDiagnostic("Canonical compatibility declaration is invalid.", "compatibility")]),
+    ];
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  return success(allow ?? false);
+}
+
+function validateAdapterDraft(
+  adapter: VendorAdapter,
+  plugin: CanonicalPlugin,
+  draft: VendorBundleDraft,
+): readonly Diagnostic[] {
+  return draft.plugin.name === plugin.manifest.name &&
+      draft.plugin.version === plugin.manifest.version &&
+      draft.vendor === adapter.vendor &&
+      draft.adapter.version === adapter.adapterVersion &&
+      draft.adapter.vendorSchemaVersion === adapter.vendorSchemaVersion &&
+      draft.sourceDigest === plugin.sourceDigest
+    ? []
+    : [
+        diagnostic(
+          compilerDiagnosticCodes.adapterInvalid,
+          "Adapter output identity and provenance must match its canonical input and registered metadata.",
+          adapter.vendor,
+        ),
+      ];
+}
+
+function materializeVendorBundle(
+  bundle: VendorBundle,
+  output: string,
+  hooks: CompilerTestHooks,
+): Result<string> {
+  const existing = pathKind(output);
+  if (existing === "file" || existing === "symlink" || existing === "other") {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.compilerOutputInvalid,
+        "Compiler output must be missing or a real directory.",
+        output,
+      ),
+    );
+  }
+  let stage: string | undefined;
+  try {
+    mkdirSync(dirname(output), { recursive: true });
+    stage = mkdtempSync(join(dirname(output), `.${basename(output)}.stage-`));
+    writeVendorBundle(stage, bundle);
+    const staged = readVendorBundle(stage);
+    if (!staged.ok || compareVendorBundles(bundle, staged.value).length > 0) {
+      return staged.ok
+        ? failure(diagnostic(compilerDiagnosticCodes.compilerStageFailed, "Staged bundle verification failed.", output))
+        : failure(staged.diagnostics[0], ...staged.diagnostics.slice(1));
+    }
+    hooks.afterStaging?.();
+    return replaceStagedOutput(stage, output, bundle, hooks);
+  } catch {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.compilerStageFailed,
+        "Vendor bundle staging failed before output replacement.",
+        output,
+      ),
+    );
+  } finally {
+    if (stage !== undefined) removeGeneratedPath(stage);
+  }
+}
+
+function writeVendorBundle(root: string, bundle: VendorBundle): void {
+  chmodSync(root, 0o755);
+  const manifestJson = toJsonValue(bundle.manifest);
+  if (!manifestJson.ok) throw new Error("invalid manifest JSON value");
+  const manifestPath = join(root, BUNDLE_MANIFEST_FILE);
+  writeFileSync(manifestPath, stableJson(manifestJson.value), { flag: "wx", mode: 0o644 });
+  chmodSync(manifestPath, 0o644);
+  const payloadRoot = join(root, BUNDLE_PAYLOAD_DIRECTORY);
+  mkdirSync(payloadRoot, { mode: 0o755 });
+  for (const file of bundle.files) {
+    const destination = join(payloadRoot, ...file.path.split("/"));
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
+    writeFileSync(destination, file.content, { flag: "wx", mode: file.mode });
+    chmodSync(destination, file.mode);
+  }
+}
+
+function replaceStagedOutput(
+  stage: string,
+  output: string,
+  expected: VendorBundle,
+  hooks: CompilerTestHooks,
+): Result<string> {
+  let backup: string | undefined;
+  let priorMoved = false;
+  let stageMoved = false;
+  try {
+    if (pathKind(output) === "directory") {
+      backup = mkdtempSync(join(dirname(output), `.${basename(output)}.backup-`));
+      rmSync(backup, { recursive: true });
+      renameSync(output, backup);
+      priorMoved = true;
+      hooks.afterPriorBackup?.();
+    }
+    renameSync(stage, output);
+    stageMoved = true;
+    const installed = readVendorBundle(output);
+    if (!installed.ok || compareVendorBundles(expected, installed.value).length > 0) {
+      throw new Error("output verification failed");
+    }
+    if (backup !== undefined) removeGeneratedPath(backup);
+    return success(output);
+  } catch {
+    if (stageMoved) removeGeneratedPath(output);
+    if (priorMoved && backup !== undefined) {
+      try {
+        renameSync(backup, output);
+      } catch {
+        return failure(
+          diagnostic(
+            compilerDiagnosticCodes.compilerRestoreFailed,
+            "Compiler output replacement failed and the prior output could not be restored automatically.",
+            backup,
+          ),
+        );
+      }
+    }
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.compilerReplaceFailed,
+        "Compiler output replacement failed; the prior output was preserved.",
+        output,
+      ),
+    );
+  }
+}
+
+function readPayloadTree(payloadRoot: string): Result<readonly PayloadFile[]> {
+  try {
+    const stat = lstatSync(payloadRoot);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.bundleEntryInvalid,
+          "Bundle payload must be a real directory.",
+          BUNDLE_PAYLOAD_DIRECTORY,
+        ),
+      );
+    }
+    return readPayloadDirectory(payloadRoot, []);
+  } catch {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.bundleUnreadable,
+        "Bundle payload directory could not be read.",
+        BUNDLE_PAYLOAD_DIRECTORY,
+      ),
+    );
+  }
+}
+
+function readPayloadDirectory(
+  directory: string,
+  segments: readonly string[],
+): Result<readonly PayloadFile[]> {
+  const results = readdirSync(directory).sort(compareStrings).map((entry) => {
+    const absolute = join(directory, entry);
+    const relativeSegments = [...segments, entry];
+    const path = relativeSegments.join("/");
+    const stat = lstatSync(absolute);
+    if (stat.isSymbolicLink()) {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.bundleEntryInvalid,
+          "Symlink payload entries are forbidden.",
+          path,
+        ),
+      );
+    }
+    if (stat.isDirectory()) return readPayloadDirectory(absolute, relativeSegments);
+    if (!stat.isFile()) {
+      return failure(
+        diagnostic(
+          compilerDiagnosticCodes.bundleEntryInvalid,
+          "Payload entries must be regular files or directories.",
+          path,
+        ),
+      );
+    }
+    const file = createPayloadFile({
+      path,
+      content: readFileSync(absolute),
+      mode: stat.mode & 0o777,
+    });
+    return file.ok ? success([file.value]) : file;
+  });
+  const diagnostics = results.flatMap((result) => result.ok ? [] : result.diagnostics);
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  return success(Object.freeze(results.flatMap((result) => result.ok ? result.value : [])));
+}
+
+function compareVendorBundles(
+  expected: VendorBundle,
+  actual: VendorBundle,
+): readonly Diagnostic[] {
+  const expectedManifest = toJsonValue(expected.manifest);
+  const actualManifest = toJsonValue(actual.manifest);
+  const manifestEqual = expectedManifest.ok && actualManifest.ok &&
+    stableJson(expectedManifest.value) === stableJson(actualManifest.value);
+  const expectedPaths = expected.files.map((file) => file.path);
+  const actualPaths = actual.files.map((file) => file.path);
+  const diagnostics: Diagnostic[] = manifestEqual
+    ? []
+    : [diagnostic(compilerDiagnosticCodes.driftManifest, "Generated and shipped bundle manifests differ.")];
+  if (expectedPaths.length !== actualPaths.length ||
+      expectedPaths.some((path, index) => path !== actualPaths[index])) {
+    diagnostics.push(
+      diagnostic(
+        compilerDiagnosticCodes.driftPath,
+        "Generated and shipped payload paths differ.",
+      ),
+    );
+  }
+  const actualByPath = new Map(actual.files.map((file) => [file.path, file]));
+  for (const expectedFile of expected.files) {
+    const actualFile = actualByPath.get(expectedFile.path);
+    if (actualFile === undefined) continue;
+    if (expectedFile.mode !== actualFile.mode) {
+      diagnostics.push(
+        diagnostic(
+          compilerDiagnosticCodes.driftMode,
+          "Generated and shipped payload file modes differ.",
+          expectedFile.path,
+        ),
+      );
+    }
+    if (!Buffer.from(expectedFile.content).equals(Buffer.from(actualFile.content))) {
+      diagnostics.push(
+        diagnostic(
+          compilerDiagnosticCodes.driftContent,
+          "Generated and shipped payload bytes differ.",
+          expectedFile.path,
+        ),
+      );
+    }
+  }
+  return diagnostics;
+}
+
+function toJsonValue(value: unknown, path = "value"): Result<JsonValue> {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return success(value);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return success(value);
+  if (Array.isArray(value)) {
+    const results = value.map((entry, index) => toJsonValue(entry, `${path}[${index}]`));
+    const diagnostics = results.flatMap((result) => result.ok ? [] : result.diagnostics);
+    return diagnostics.length === 0
+      ? success(results.flatMap((result) => result.ok ? [result.value] : []))
+      : failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  if (isRecord(value)) {
+    const json: Record<string, JsonValue> = {};
+    const diagnostics: Diagnostic[] = [];
+    for (const key of Object.keys(value).sort(compareStrings)) {
+      const entry = value[key];
+      if (entry === undefined) continue;
+      const parsed = toJsonValue(entry, `${path}.${key}`);
+      if (parsed.ok) json[key] = parsed.value;
+      else diagnostics.push(...parsed.diagnostics);
+    }
+    if (diagnostics.length > 0) {
+      return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+    }
+    return success(json);
+  }
+  return failure(
+    diagnostic(
+      compilerDiagnosticCodes.canonicalInvalid,
+      "Canonical data must contain only finite JSON values.",
+      path,
+    ),
+  );
+}
+
+function compareMcpServers(left: PluginMcpServer, right: PluginMcpServer): number {
+  const leftJson = toJsonValue(left);
+  const rightJson = toJsonValue(right);
+  return compareStrings(
+    leftJson.ok ? stableJson(leftJson.value) : "",
+    rightJson.ok ? stableJson(rightJson.value) : "",
+  );
+}
+
+function canonicalUnknownFields(
+  value: Readonly<Record<string, unknown>>,
+  allowed: readonly string[],
+  parent: string = CANONICAL_DISTRIBUTION_EXTENSION,
+): readonly Diagnostic[] {
+  return Object.keys(value)
+    .filter((key) => !allowed.includes(key))
+    .sort(compareStrings)
+    .map((key) =>
+      canonicalDistributionDiagnostic(
+        `Unknown canonical distribution field "${key}".`,
+        `${parent}.${key}`,
+      ),
+    );
+}
+
+function invalidCanonicalDistribution(path: string): Result<never> {
+  return failure(
+    canonicalDistributionDiagnostic("Canonical distribution declaration is invalid.", path),
+  );
+}
+
+function canonicalDistributionDiagnostic(message: string, path: string): Diagnostic {
+  return diagnostic(compilerDiagnosticCodes.canonicalDistributionInvalid, message, path);
+}
+
+function isCanonicalHookLifecycle(value: unknown): value is CanonicalHookLifecycle {
+  return value === "session-start" || value === "session-end" || value === "before-tool" ||
+    value === "after-tool" || value === "before-prompt" || value === "stop";
+}
+
+function isCanonicalToolKind(value: unknown): value is CanonicalToolKind {
+  return value === "shell" || value === "file-read" || value === "file-write" || value === "mcp";
+}
+
+function pathKind(path: string): "missing" | "directory" | "file" | "symlink" | "other" {
+  try {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) return "symlink";
+    if (stat.isDirectory()) return "directory";
+    if (stat.isFile()) return "file";
+    return "other";
+  } catch {
+    return "missing";
+  }
+}
+
+function removeGeneratedPath(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // Cleanup is best effort after the generated artifact has been verified.
+  }
 }
 
 function validateBundleIdentity(manifest: VendorBundleManifest): readonly Diagnostic[] {
