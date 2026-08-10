@@ -8,7 +8,7 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 
 - Main work branch and final PR target: `main`
 - Feature integration branch: `feature/age-13-vendor-payload-compiler-installer`
-- Story branches: `story/age-<ticket>-<short-description>`
+- Child Story branches: `feature/age-<ticket>-<short-description>` (the repository hook rejects the workflow's preferred `story/` prefix)
 - Every Story starts from the Feature branch, is re-synchronized with it before review, and targets the Feature branch.
 - The Feature targets `main` only after AGE-14 through AGE-23 are merged and the finish-feature-development workflow is invoked.
 
@@ -19,14 +19,14 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Create immutable canonical, digest, path, bundle, plan, record, journal, and result contracts outside core.
 - [x] Implement branded constructors, deterministic encodings, common validation, and diagnostic families.
 - [x] Prove normalized relative-path containment, uniqueness, and the portable-core dependency boundary.
-- [ ] Build, typecheck, and test affected packages; merge `story/age-14-contracts` into the Feature branch.
+- [x] Build, typecheck, and test affected packages; merge PR #20 from `story/age-14-contracts` into the Feature branch.
 
 ### AGE-15 — Adapter SDK
 
-- [ ] Define the complete pure `VendorAdapter` boundary and exact three-vendor frozen registry.
-- [ ] Add deterministic JSON, Markdown, line-ending, path, and mode helpers.
-- [ ] Add shared adapter conformance and no-filesystem-side-effect tests.
-- [ ] Build, typecheck, and test affected packages; merge `story/age-15-adapter-sdk` into the Feature branch.
+- [x] Define the complete pure `VendorAdapter` boundary and exact three-vendor frozen registry.
+- [x] Add deterministic JSON, Markdown, line-ending, path, and mode helpers.
+- [x] Add shared adapter conformance and no-filesystem-side-effect tests.
+- [ ] Build, typecheck, and test affected packages; merge `feature/age-15-adapter-sdk` into the Feature branch.
 
 ### AGE-16 — Compiler and shipped payload pipeline
 
