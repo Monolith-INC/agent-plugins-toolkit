@@ -131,6 +131,20 @@ export interface VendorBundleDraft {
   readonly files: readonly PayloadFile[];
 }
 
+export interface VendorAdapter {
+  readonly vendor: VendorId;
+  readonly adapterVersion: string;
+  readonly vendorSchemaVersion: string;
+  readonly compile: (plugin: CanonicalPlugin) => Result<VendorBundleDraft>;
+  readonly validate: (bundle: VendorBundle) => readonly Diagnostic[];
+  readonly planInstallation: (
+    bundle: VendorBundle,
+    target: InstallTarget,
+  ) => Result<InstallPlan>;
+}
+
+export type VendorAdapterRegistry = Readonly<Record<VendorId, VendorAdapter>>;
+
 export interface InstallTarget {
   readonly root: string;
 }
@@ -224,6 +238,9 @@ export type VerificationResult =
 
 export const compilerDiagnosticCodes = Object.freeze({
   vendorUnsupported: "adapter.vendor.unsupported",
+  adapterInvalid: "adapter.contract.invalid",
+  adapterMissing: "adapter.registry.missing",
+  adapterDuplicate: "adapter.registry.duplicate",
   sha256Invalid: "bundle.sha256.invalid",
   pathInvalid: "bundle.path.invalid",
   fileModeInvalid: "bundle.file.mode.invalid",
@@ -241,6 +258,11 @@ export const compilerDiagnosticCodes = Object.freeze({
   planSourceDuplicate: "install.preflight.plan.source_duplicate",
   planDestinationDuplicate: "install.preflight.plan.destination_duplicate",
   planOrderInvalid: "install.preflight.plan.order_invalid",
+} as const);
+
+export const PORTABLE_FILE_MODES = Object.freeze({
+  regular: 0o644,
+  executable: 0o755,
 } as const);
 
 export type CompilerDiagnosticCode =
@@ -327,6 +349,10 @@ export function canonicalText(value: string): string {
   return `${withoutBom.replace(/\r\n?/g, "\n").replace(/\n*$/g, "")}\n`;
 }
 
+export function canonicalMarkdown(value: string): string {
+  return canonicalText(value);
+}
+
 export type JsonValue =
   | null
   | boolean
@@ -370,6 +396,43 @@ export function createPayloadFile(input: {
   });
 }
 
+export function createJsonPayloadFile(input: {
+  readonly path: string;
+  readonly value: JsonValue;
+  readonly mode?: number;
+}): Result<PayloadFile> {
+  return createPayloadFile({
+    path: input.path,
+    content: stableJson(input.value),
+    ...(input.mode === undefined ? {} : { mode: input.mode }),
+  });
+}
+
+export function createMarkdownPayloadFile(input: {
+  readonly path: string;
+  readonly content: string;
+  readonly mode?: number;
+}): Result<PayloadFile> {
+  return createPayloadFile({
+    path: input.path,
+    content: canonicalMarkdown(input.content),
+    ...(input.mode === undefined ? {} : { mode: input.mode }),
+  });
+}
+
+export function formatPayloadPath(
+  first: string,
+  ...rest: readonly string[]
+): Result<RelativePayloadPath> {
+  return parseRelativePayloadPath([first, ...rest].join("/"));
+}
+
+export function sortPayloadFiles(
+  files: readonly PayloadFile[],
+): readonly PayloadFile[] {
+  return Object.freeze([...files].sort(comparePayloadFiles));
+}
+
 export function payloadDescriptor(file: PayloadFile): PayloadFileDescriptor {
   return {
     path: file.path,
@@ -391,7 +454,7 @@ export function computePayloadDigest(files: readonly PayloadFile[]): Sha256 {
 }
 
 export function finalizeVendorBundle(draft: VendorBundleDraft): Result<VendorBundle> {
-  const files = [...draft.files].sort(comparePayloadFiles);
+  const files = sortPayloadFiles(draft.files);
   const candidate: VendorBundle = {
     manifest: {
       schemaVersion: BUNDLE_SCHEMA_VERSION,
@@ -411,6 +474,65 @@ export function finalizeVendorBundle(draft: VendorBundleDraft): Result<VendorBun
   return diagnostics.length === 0
     ? success(candidate)
     : failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+}
+
+export function createVendorAdapterRegistry(
+  adapters: readonly unknown[],
+): Result<VendorAdapterRegistry> {
+  const parsed = adapters.map(parseVendorAdapter);
+  const invalid = parsed.flatMap((result) => result.ok ? [] : result.diagnostics);
+  if (invalid.length > 0) {
+    return failure(invalid[0] as Diagnostic, ...invalid.slice(1));
+  }
+
+  const valid = parsed.flatMap((result) => result.ok ? [result.value] : []);
+  const duplicates = VENDOR_IDS.flatMap((vendor) =>
+    valid.filter((adapter) => adapter.vendor === vendor).length > 1
+      ? [
+          diagnostic(
+            compilerDiagnosticCodes.adapterDuplicate,
+            `Adapter registry contains more than one ${vendor} adapter.`,
+            vendor,
+          ),
+        ]
+      : [],
+  );
+  const missing = VENDOR_IDS.flatMap((vendor) =>
+    valid.some((adapter) => adapter.vendor === vendor)
+      ? []
+      : [
+          diagnostic(
+            compilerDiagnosticCodes.adapterMissing,
+            `Adapter registry requires exactly one ${vendor} adapter.`,
+            vendor,
+          ),
+        ],
+  );
+  const diagnostics = [...duplicates, ...missing];
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+
+  const find = (vendor: VendorId): VendorAdapter =>
+    valid.find((adapter) => adapter.vendor === vendor) as VendorAdapter;
+  return success(
+    Object.freeze({
+      claude: find("claude"),
+      codex: find("codex"),
+      cursor: find("cursor"),
+    }),
+  );
+}
+
+export function getVendorAdapter(
+  registry: VendorAdapterRegistry,
+  vendor: VendorId,
+): VendorAdapter {
+  return registry[vendor];
+}
+
+export function listVendorAdapters(): readonly VendorId[] {
+  return VENDOR_IDS;
 }
 
 export function validateVendorBundle(bundle: VendorBundle): readonly Diagnostic[] {
@@ -613,6 +735,68 @@ function validateBundleIdentity(manifest: VendorBundleManifest): readonly Diagno
     ...(sourceDigest.ok ? [] : sourceDigest.diagnostics),
     ...(payloadDigest.ok ? [] : payloadDigest.diagnostics),
   ];
+}
+
+function parseVendorAdapter(value: unknown): Result<VendorAdapter> {
+  if (!isRecord(value)) {
+    return failure(
+      diagnostic(
+        compilerDiagnosticCodes.adapterInvalid,
+        "Vendor adapter must be an immutable contract object.",
+      ),
+    );
+  }
+
+  const vendor = typeof value["vendor"] === "string"
+    ? parseVendorId(value["vendor"])
+    : failure(
+        diagnostic(
+          compilerDiagnosticCodes.adapterInvalid,
+          "Vendor adapter must declare a supported vendor.",
+          "vendor",
+        ),
+      );
+  const adapterVersion = value["adapterVersion"];
+  const vendorSchemaVersion = value["vendorSchemaVersion"];
+  const compile = value["compile"];
+  const validate = value["validate"];
+  const planInstallation = value["planInstallation"];
+  const diagnostics = [
+    ...(vendor.ok ? [] : vendor.diagnostics),
+    ...(typeof adapterVersion === "string" && adapterVersion.length > 0
+      ? []
+      : [diagnostic(compilerDiagnosticCodes.adapterInvalid, "Adapter version must be non-empty.", "adapterVersion")]),
+    ...(typeof vendorSchemaVersion === "string" && vendorSchemaVersion.length > 0
+      ? []
+      : [diagnostic(compilerDiagnosticCodes.adapterInvalid, "Vendor schema version must be non-empty.", "vendorSchemaVersion")]),
+    ...(typeof compile === "function"
+      ? []
+      : [diagnostic(compilerDiagnosticCodes.adapterInvalid, "Adapter compile operation is required.", "compile")]),
+    ...(typeof validate === "function"
+      ? []
+      : [diagnostic(compilerDiagnosticCodes.adapterInvalid, "Adapter validate operation is required.", "validate")]),
+    ...(typeof planInstallation === "function"
+      ? []
+      : [diagnostic(compilerDiagnosticCodes.adapterInvalid, "Adapter installation-plan operation is required.", "planInstallation")]),
+  ];
+  if (diagnostics.length > 0) {
+    return failure(diagnostics[0] as Diagnostic, ...diagnostics.slice(1));
+  }
+  if (!vendor.ok || typeof adapterVersion !== "string" || typeof vendorSchemaVersion !== "string" ||
+      typeof compile !== "function" || typeof validate !== "function" || typeof planInstallation !== "function") {
+    return failure(diagnostic(compilerDiagnosticCodes.adapterInvalid, "Vendor adapter contract is invalid."));
+  }
+
+  return success(
+    Object.freeze({
+      vendor: vendor.value,
+      adapterVersion,
+      vendorSchemaVersion,
+      compile: compile as VendorAdapter["compile"],
+      validate: validate as VendorAdapter["validate"],
+      planInstallation: planInstallation as VendorAdapter["planInstallation"],
+    }),
+  );
 }
 
 function validatePayloadFileDescriptor(
