@@ -1,0 +1,10 @@
+{
+  "id": "malformed-plugin-json",
+  "kind": "invalid",
+  "description": "Unparseable plugin.json yields manifest.unreadable.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.unreadable"
+  ],
+  "requireManifest": false
+}
