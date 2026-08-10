@@ -21,6 +21,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/compiler:
+    dependencies:
+      '@agent-plugins/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/core: {}
 
   packages/testing:
