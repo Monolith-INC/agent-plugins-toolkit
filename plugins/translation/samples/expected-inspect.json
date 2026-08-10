@@ -3,7 +3,18 @@
     "name": "translation",
     "version": "0.1.0",
     "description": "Portable translation workflows for draft, review, and terminology assistance.",
-    "schemaVersion": "1.0.0"
+    "schemaVersion": "1.0.0",
+    "extensions": {
+      "com.acme.translation": {
+        "defaultTargetLocale": "pt-BR",
+        "glossaryRef": "glossaries/product.json",
+        "reviewRubric": [
+          "accuracy",
+          "fluency",
+          "terminology"
+        ]
+      }
+    }
   },
   "skills": [
     {

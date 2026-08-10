@@ -57,6 +57,51 @@ test("malformed and unsupported terminology MCP fixtures diagnose without execut
   );
 });
 
+
+test("translation plugin preserves opaque extension namespace", () => {
+  const result = withCapturedIo(() => run(["inspect", pluginRoot]));
+  assert.equal(result.exitCode, 0);
+  const inspection = JSON.parse(result.stdout);
+  assert.deepEqual(inspection.manifest.extensions, {
+    "com.acme.translation": {
+      defaultTargetLocale: "pt-BR",
+      glossaryRef: "glossaries/product.json",
+      reviewRubric: ["accuracy", "fluency", "terminology"],
+    },
+  });
+});
+
+test("partial recovery keeps manifest and skills when MCP fails", () => {
+  const result = withCapturedIo(() =>
+    run(["inspect", join(repoRoot, "fixtures/invalid/translation-partial-recovery")]),
+  );
+  assert.equal(result.exitCode, 1);
+  const inspection = JSON.parse(result.stdout);
+  assert.equal(inspection.manifest.name, "translation-partial-recovery");
+  assert.deepEqual(inspection.manifest.extensions, {
+    "com.acme.translation": { defaultTargetLocale: "pt-BR" },
+  });
+  assert.deepEqual(
+    inspection.skills.map((skill) => skill.path),
+    ["skills/translate/SKILL.md"],
+  );
+  assert.ok(inspection.diagnostics.some((d) => String(d.code).startsWith("mcpServer")));
+});
+
+test("malformed extensions diagnose while remaining identity can survive", () => {
+  const result = withCapturedIo(() =>
+    run(["inspect", join(repoRoot, "fixtures/invalid/translation-malformed-extension")]),
+  );
+  assert.equal(result.exitCode, 1);
+  const inspection = JSON.parse(result.stdout);
+  assert.ok(
+    JSON.parse(result.stderr.length ? result.stderr : "[]").length >= 0 ||
+      inspection.diagnostics.some((d) => d.code === "manifest.extensions.invalid_type"),
+  );
+  assert.ok(inspection.diagnostics.some((d) => d.code === "manifest.extensions.invalid_type"));
+  assert.equal(inspection.manifest?.name, "translation-malformed-extension");
+});
+
 function withCapturedIo(action) {
   const originalLog = console.log;
   const originalError = console.error;

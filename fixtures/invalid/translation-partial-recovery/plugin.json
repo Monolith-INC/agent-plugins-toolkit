@@ -1,0 +1,10 @@
+{
+  "name": "translation-partial-recovery",
+  "version": "0.1.0",
+  "description": "Valid portable identity with opaque extensions and broken MCP.",
+  "extensions": {
+    "com.acme.translation": {
+      "defaultTargetLocale": "pt-BR"
+    }
+  }
+}
