@@ -62,13 +62,14 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Implement same-filesystem staging, durable journal entries, deterministic commit, installed-record verification, and cleanup.
 - [x] Implement idempotent reinstall, upgrade/removal of stale owned files, reverse rollback, and preserved recovery journals.
 - [x] Cover every mutation fault point and exact managed-state restoration.
-- [ ] Merge `feature/age-20-transactional-installer` into the Feature branch.
+- [x] Merge `feature/age-20-transactional-installer` into the Feature branch.
 
 ### AGE-21 — Single install command
 
-- [ ] Add strict parsing for exactly one plugin, vendor, and target with the specified JSON envelopes and exit codes.
-- [ ] Resolve only shipped verified bundles and call only the shared installer; expose no alternate install/activation path.
-- [ ] Cover all three vendors and failure result variants; merge `feature/age-21-install-command` into the Feature branch.
+- [x] Add strict parsing for exactly one plugin, vendor, and target with the specified JSON envelopes and exit codes.
+- [x] Resolve only shipped verified bundles and call only the shared installer; expose no alternate install/activation path.
+- [x] Cover all three vendors and failure result variants.
+- [ ] Merge `feature/age-21-install-command` into the Feature branch.
 
 ### AGE-22 — Release evidence
 

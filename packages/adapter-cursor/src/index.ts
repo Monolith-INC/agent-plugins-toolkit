@@ -27,6 +27,7 @@ export const CURSOR_SCHEMA_EVIDENCE = Object.freeze([
   "https://cursor.com/docs/reference/plugins",
   "https://cursor.com/docs/hooks",
 ] as const);
+export const CURSOR_SHIPPED_HELLO_WORLD = new URL("../payloads/hello-world", import.meta.url);
 
 const CURSOR_MANIFEST_PATH = ".cursor-plugin/plugin.json";
 const CURSOR_HOOKS_PATH = "hooks/hooks.json";

@@ -24,6 +24,7 @@ export const CODEX_SCHEMA_EVIDENCE = Object.freeze([
   "https://developers.openai.com/plugins/build/plugins",
   "https://learn.chatgpt.com/docs/hooks",
 ] as const);
+export const CODEX_SHIPPED_HELLO_WORLD = new URL("../payloads/hello-world", import.meta.url);
 
 const MANIFEST_PATH = ".codex-plugin/plugin.json";
 const HOOKS_PATH = "hooks/hooks.json";

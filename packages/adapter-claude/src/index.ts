@@ -24,6 +24,7 @@ export const CLAUDE_SCHEMA_EVIDENCE = Object.freeze([
   "https://code.claude.com/docs/en/plugins-reference",
   "https://code.claude.com/docs/en/hooks",
 ] as const);
+export const CLAUDE_SHIPPED_HELLO_WORLD = new URL("../payloads/hello-world", import.meta.url);
 
 const MANIFEST_PATH = ".claude-plugin/plugin.json";
 const HOOKS_PATH = "hooks/hooks.json";
