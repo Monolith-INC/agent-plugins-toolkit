@@ -1,0 +1,10 @@
+{
+  "id": "missing-name",
+  "kind": "invalid",
+  "description": "Manifest missing required name.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.name.required"
+  ],
+  "requireManifest": false
+}

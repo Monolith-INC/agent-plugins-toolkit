@@ -1,0 +1,10 @@
+{
+  "id": "missing-version",
+  "kind": "invalid",
+  "description": "Manifest missing required version.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.version.required"
+  ],
+  "requireManifest": false
+}

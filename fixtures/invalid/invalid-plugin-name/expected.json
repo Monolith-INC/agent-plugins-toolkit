@@ -1,0 +1,10 @@
+{
+  "id": "invalid-plugin-name",
+  "kind": "invalid",
+  "description": "Uppercase/invalid plugin name rejected.",
+  "validateExitCode": 1,
+  "diagnosticCodes": [
+    "manifest.name.invalid"
+  ],
+  "requireManifest": false
+}

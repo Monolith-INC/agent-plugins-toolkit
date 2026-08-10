@@ -124,6 +124,10 @@ pnpm typecheck
 pnpm test
 ```
 
+## Quality gates
+
+See [docs/quality-gates.md](docs/quality-gates.md) for the required local and CI checks (Linux, macOS, Windows).
+
 ## Translation plugin dogfood
 
 See [docs/translation-plugin-dogfood.md](docs/translation-plugin-dogfood.md) for the M3 multi-Skill portable consumer and its intentional non-goals.
