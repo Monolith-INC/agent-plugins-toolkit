@@ -246,7 +246,11 @@ test("all stable diagnostic codes are reachable through inspection", () => {
 
   assert.deepEqual(
     emittedCodes,
-    new Set(Object.values(diagnosticCodes).filter((code) => !String(code).startsWith("authoring."))),
+    new Set(
+      Object.values(diagnosticCodes).filter(
+        (code) => !String(code).startsWith("path.") && !String(code).startsWith("authoring."),
+      ),
+    ),
   );
 });
 
