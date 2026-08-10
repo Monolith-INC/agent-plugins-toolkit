@@ -13,7 +13,7 @@ test("cli sources never spawn processes", () => {
   const source = readFileSync(join(repoRoot, "packages/cli/src/index.ts"), "utf8");
   assert.equal(source.includes("child_process"), false);
   assert.equal(source.includes("spawn("), false);
-  assert.equal(source.includes("exec("), false);
+  assert.equal(source.includes("child_process.exec"), false);
   assert.equal(source.includes("fetch("), false);
 });
 

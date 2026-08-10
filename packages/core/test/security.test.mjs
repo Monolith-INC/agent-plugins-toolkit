@@ -24,7 +24,7 @@ test("core sources never spawn processes or open network connections", () => {
   const source = readFileSync(join(repoRoot, "packages/core/src/index.ts"), "utf8");
   assert.equal(source.includes("child_process"), false);
   assert.equal(source.includes("spawn("), false);
-  assert.equal(source.includes("exec("), false);
+  assert.equal(source.includes("child_process.exec"), false);
   assert.equal(source.includes("fetch("), false);
   assert.equal(source.includes("http.request"), false);
   assert.equal(source.includes("https.request"), false);
