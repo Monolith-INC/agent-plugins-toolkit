@@ -1,5 +1,13 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 export type DiagnosticSeverity = "error" | "warning" | "info";
 
@@ -31,6 +39,12 @@ export const diagnosticCodes = {
   mcpServerCwdInvalidType: "mcpServer.cwd.invalid_type",
   manifestUnreadable: "manifest.unreadable",
   skillMissingSkillMd: "skill.missing_skill_md",
+  authoringNameInvalid: "authoring.name.invalid",
+  authoringDestinationExists: "authoring.destination.exists",
+  authoringDestinationUnsafe: "authoring.destination.unsafe",
+  authoringPluginRootInvalid: "authoring.plugin_root.invalid",
+  authoringSkillExists: "authoring.skill.exists",
+  authoringWriteFailed: "authoring.write_failed",
 } as const;
 
 export type DiagnosticCode = (typeof diagnosticCodes)[keyof typeof diagnosticCodes] | (string & {});
@@ -63,6 +77,113 @@ const PORTABLE_MANIFEST_FIELDS = new Set([
 const DECLARATION_MANIFEST_FIELDS = new Set([...PORTABLE_MANIFEST_FIELDS, "skills", "mcpServers"]);
 
 const PLUGIN_NAME_PATTERN = /^(?:@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\/)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const SKILL_DIRECTORY_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+export interface AuthoringResult {
+  readonly diagnostics: readonly Diagnostic[];
+  readonly path?: string;
+  readonly name?: string;
+  readonly nextSteps?: readonly string[];
+}
+
+export function isValidPluginName(name: string): boolean {
+  return PLUGIN_NAME_PATTERN.test(name);
+}
+
+export function isValidSkillDirectoryName(name: string): boolean {
+  return SKILL_DIRECTORY_NAME_PATTERN.test(name);
+}
+
+export function pluginDirectoryName(name: string): string {
+  const slash = name.lastIndexOf("/");
+  return slash === -1 ? name : name.slice(slash + 1);
+}
+
+export function buildPluginManifestJson(name: string): string {
+  return `${JSON.stringify(
+    {
+      name,
+      version: "0.1.0",
+      description: "Scaffolded by agent-plugin create.",
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function buildSkillMarkdown(skillName: string): string {
+  return [
+    "---",
+    `name: ${skillName}`,
+    `description: Use when working with the ${skillName} skill.`,
+    "---",
+    "",
+    `# ${titleCaseSkill(skillName)}`,
+    "",
+    `Describe how to use the ${skillName} skill.`,
+    "",
+  ].join("\n");
+}
+
+export function createPluginScaffold(options: {
+  readonly name: string;
+  readonly destination: string;
+  readonly rawDestination?: string;
+}): AuthoringResult {
+  const nameCheck = validateAuthoringPluginName(options.name);
+  if (nameCheck !== undefined) return { diagnostics: [nameCheck] };
+
+  const unsafe = unsafePathDiagnostic(options.rawDestination ?? options.destination);
+  if (unsafe !== undefined) return { diagnostics: [unsafe] };
+
+  const destination = resolve(options.destination);
+  const destinationCheck = checkCreateDestination(destination);
+  if (destinationCheck !== undefined) return { diagnostics: [destinationCheck] };
+
+  return writeCreateScaffold({
+    name: options.name,
+    destination,
+    createdRoot: !existsSync(destination),
+  });
+}
+
+export function addSkillScaffold(options: {
+  readonly skillName: string;
+  readonly pluginRoot: string;
+  readonly rawPluginRoot?: string;
+}): AuthoringResult {
+  const nameCheck = validateAuthoringSkillName(options.skillName);
+  if (nameCheck !== undefined) return { diagnostics: [nameCheck] };
+
+  const unsafe = unsafePathDiagnostic(options.rawPluginRoot ?? options.pluginRoot);
+  if (unsafe !== undefined) return { diagnostics: [unsafe] };
+
+  const pluginRoot = resolve(options.pluginRoot);
+  const rootCheck = checkAuthoringPluginRoot(pluginRoot);
+  if (rootCheck !== undefined) return { diagnostics: [rootCheck] };
+
+  const skillDir = join(pluginRoot, "skills", options.skillName);
+  const skillPath = join(skillDir, "SKILL.md");
+  if (existsSync(skillDir) || existsSync(skillPath)) {
+    return {
+      diagnostics: [
+        createDiagnostic({
+          severity: "error",
+          code: diagnosticCodes.authoringSkillExists,
+          message: `Skill already exists at skills/${options.skillName}.`,
+          path: `skills/${options.skillName}`,
+        }),
+      ],
+    };
+  }
+
+  return writeSkillScaffold({
+    skillName: options.skillName,
+    skillDir,
+    skillPath,
+  });
+}
 
 export interface PluginSkill {
   readonly name?: string;
@@ -1007,4 +1128,168 @@ function parseFrontmatter(content: string): Record<string, string> {
       if (!key) return acc;
       return { ...acc, [key]: parts.slice(1).join(":").trim() };
     }, {});
+}
+
+function validateAuthoringPluginName(name: string): Diagnostic | undefined {
+  return isValidPluginName(name)
+    ? undefined
+    : createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.authoringNameInvalid,
+        message:
+          'Plugin name must be a lowercase npm-style package name (optional @scope/).',
+        path: "name",
+      });
+}
+
+function validateAuthoringSkillName(name: string): Diagnostic | undefined {
+  return isValidSkillDirectoryName(name)
+    ? undefined
+    : createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.authoringNameInvalid,
+        message: "Skill name must be a lowercase kebab-case directory segment.",
+        path: "skillName",
+      });
+}
+
+function unsafePathDiagnostic(rawPath: string): Diagnostic | undefined {
+  return hasTraversalSegment(rawPath)
+    ? createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.authoringDestinationUnsafe,
+        message: "Authoring paths must not contain '..' segments.",
+        path: rawPath,
+      })
+    : undefined;
+}
+
+function hasTraversalSegment(rawPath: string): boolean {
+  return rawPath.split(/[\\/]/).some((segment) => segment === "..");
+}
+
+function checkCreateDestination(destination: string): Diagnostic | undefined {
+  if (!existsSync(destination)) return undefined;
+
+  const stats = statSync(destination);
+  if (!stats.isDirectory()) {
+    return createDiagnostic({
+      severity: "error",
+      code: diagnosticCodes.authoringDestinationExists,
+      message: "Create destination exists and is not an empty directory.",
+      path: destination,
+    });
+  }
+
+  return readdirSync(destination).length === 0
+    ? undefined
+    : createDiagnostic({
+        severity: "error",
+        code: diagnosticCodes.authoringDestinationExists,
+        message: "Create destination exists and is not an empty directory.",
+        path: destination,
+      });
+}
+
+function checkAuthoringPluginRoot(pluginRoot: string): Diagnostic | undefined {
+  try {
+    readFileSync(join(pluginRoot, "plugin.json"), "utf8");
+    return undefined;
+  } catch {
+    return createDiagnostic({
+      severity: "error",
+      code: diagnosticCodes.authoringPluginRootInvalid,
+      message: 'Plugin root must contain a readable "plugin.json".',
+      path: "plugin.json",
+    });
+  }
+}
+
+function writeCreateScaffold(options: {
+  readonly name: string;
+  readonly destination: string;
+  readonly createdRoot: boolean;
+}): AuthoringResult {
+  try {
+    mkdirSync(options.destination, { recursive: true });
+    writeFileSync(join(options.destination, "plugin.json"), buildPluginManifestJson(options.name));
+    mkdirSync(join(options.destination, "skills"), { recursive: true });
+    return {
+      diagnostics: [],
+      path: options.destination,
+      name: options.name,
+      nextSteps: [
+        `Add a skill: agent-plugin add skill <skill-name> --path ${options.destination}`,
+        `Validate: agent-plugin validate ${options.destination}`,
+        `Inspect: agent-plugin inspect ${options.destination}`,
+      ],
+    };
+  } catch (error) {
+    rollbackCreate(options.destination, options.createdRoot);
+    return {
+      diagnostics: [
+        createDiagnostic({
+          severity: "error",
+          code: diagnosticCodes.authoringWriteFailed,
+          message: error instanceof Error ? error.message : "Failed to write plugin scaffold.",
+          path: options.destination,
+        }),
+      ],
+    };
+  }
+}
+
+function writeSkillScaffold(options: {
+  readonly skillName: string;
+  readonly skillDir: string;
+  readonly skillPath: string;
+}): AuthoringResult {
+  try {
+    mkdirSync(dirname(options.skillPath), { recursive: true });
+    writeFileSync(options.skillPath, buildSkillMarkdown(options.skillName));
+    return {
+      diagnostics: [],
+      path: options.skillPath,
+      name: options.skillName,
+    };
+  } catch (error) {
+    rollbackPath(options.skillDir);
+    return {
+      diagnostics: [
+        createDiagnostic({
+          severity: "error",
+          code: diagnosticCodes.authoringWriteFailed,
+          message: error instanceof Error ? error.message : "Failed to write skill scaffold.",
+          path: options.skillPath,
+        }),
+      ],
+    };
+  }
+}
+
+function rollbackCreate(destination: string, createdRoot: boolean): void {
+  switch (createdRoot) {
+    case true:
+      rollbackPath(destination);
+      return;
+    case false:
+      rollbackPath(join(destination, "plugin.json"));
+      rollbackPath(join(destination, "skills"));
+      return;
+  }
+}
+
+function rollbackPath(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup at the program edge.
+  }
+}
+
+function titleCaseSkill(name: string): string {
+  return name
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
