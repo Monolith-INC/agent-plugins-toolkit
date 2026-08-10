@@ -130,6 +130,21 @@ test("rejects poisoned bundles, unowned collisions, symlinks, and held locks bef
   assert.deepEqual(snapshot(lockRoot), lockBefore);
 });
 
+test("rejects an unusable target before mutation", {
+  skip: process.platform === "win32" || process.getuid?.() === 0,
+}, () => {
+  const root = target();
+  chmodSync(root, 0o500);
+  try {
+    const result = installVendorBundle({ bundle: fixture(), adapter: adapter(), target: { root } });
+    assert.equal(result.kind, "failed-before-mutation");
+    assert.ok(result.diagnostics.some((entry) => entry.code === "install.preflight.target.unusable"));
+  } finally {
+    chmodSync(root, 0o700);
+  }
+  assert.deepEqual(snapshot(root), []);
+});
+
 test("deterministic upgrade replaces changed files and removes stale owned files", () => {
   const root = target();
   const first = installVendorBundle({ bundle: fixture(), adapter: adapter(), target: { root } });

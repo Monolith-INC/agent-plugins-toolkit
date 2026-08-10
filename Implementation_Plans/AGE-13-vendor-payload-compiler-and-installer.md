@@ -69,14 +69,14 @@ Implement the accepted contracts in `AI_Codex/Specs/age-13/` without changing th
 - [x] Add strict parsing for exactly one plugin, vendor, and target with the specified JSON envelopes and exit codes.
 - [x] Resolve only shipped verified bundles and call only the shared installer; expose no alternate install/activation path.
 - [x] Cover all three vendors and failure result variants.
-- [ ] Merge `feature/age-21-install-command` into the Feature branch.
+- [x] Merge `feature/age-21-install-command` into the Feature branch.
 
 ### AGE-22 — Release evidence
 
-- [ ] Complete conformance, byte/mode drift, traversal, Unicode, symlink, poisoned-bundle, permission, collision, and lock tests.
-- [ ] Complete install/reinstall/upgrade/downgrade-policy/failed-upgrade lifecycle tests for every vendor.
-- [ ] Prove installation imports no compiler, performs no network delivery, and executes no plugin content.
-- [ ] Run cross-platform quality gates; merge `feature/age-22-release-evidence` into the Feature branch.
+- [x] Complete conformance, byte/mode drift, traversal, Unicode, symlink, poisoned-bundle, permission, collision, and lock tests.
+- [x] Complete install/reinstall/upgrade/downgrade-policy/failed-upgrade lifecycle tests for every vendor.
+- [x] Prove installation invokes no compiler, performs no network delivery, and executes no plugin content.
+- [x] Run cross-platform quality gates; merge `feature/age-22-release-evidence` into the Feature branch.
 
 ### AGE-23 — Documentation and release
 
