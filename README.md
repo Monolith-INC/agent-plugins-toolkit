@@ -123,3 +123,7 @@ pnpm build:testing
 pnpm typecheck
 pnpm test
 ```
+
+## Quality gates
+
+See [docs/quality-gates.md](docs/quality-gates.md) for the required local and CI checks (Linux, macOS, Windows).
